@@ -1,0 +1,659 @@
+---
+title: "Angola Onchocerciasis Elimination Mapping"
+output:
+  html_document: 
+  keep_md: yes
+word_document: default
+pdf_document: default
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE, 
+                      cache=TRUE,
+                      dev="png",
+                      dpi = 300,
+                      fig.width = 6,
+                      fig.asp = 0.8,
+                      fig.retina = 2,
+                      out.width = "100%")
+require(pacman)
+pacman::p_load(raster, sf, exactextractr, here, leaflet, leaflet.extras, 
+               janitor, patchwork,RColorBrewer,ggsn,gghighlight,ggsflabel,conflicted)
+library(tidyverse)
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+conflict_prefer("scalebar", "ggsn")
+conflict_prefer("geom_sf_label", "ggsflabel")
+
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
+sc <- scale_fill_gradientn(colours = myPalette(100), limits=c(1, 100))
+```
+
+Selecting municipalities for Onchocerciasis elimination mapping (OEM) can be supported by evidence from publicly available data on endemicity status and environmental suitability.
+
+## Data sources
+
+The data for mapping the Implementation Units (IUs) are from the [ESPEN data portal](https://espen.afro.who.int/sites/default/files/content/cartography/files/ESPEN_IU_2020_0.zip). There are 164 implementation units in Angola.
+
+```{r angola-map}
+ang_shp <- read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>% 
+  filter(ADMIN0=='Angola')
+
+adm3_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) 
+
+adm1_shp <- adm3_shp %>% 
+  group_by(ADM1_EN) %>% 
+  #select(ADM1_EN,geometry) %>% 
+  summarise()
+
+adm2_shp <- adm3_shp %>% 
+  group_by(ADM2_EN) %>% 
+  #select(ADM1_EN,geometry) %>% 
+  summarise()
+
+ang_map <- ggplot() +
+  geom_sf(fill = "transparent", color = "blue", size = 1,
+          data = ang_shp) +
+    geom_sf(fill = "transparent", color = "red", size = 1.5, 
+          data = adm1_shp) +
+  # geom_sf(fill = "transparent", color = "black", size = 0.5,
+  #         data = adm3_shp) +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+ang_map
+rm(ang_map)
+```
+
+The data for the environmental suitability were produced by the IHME and are available [here](http://ghdx.healthdata.org/record/ihme-data/africa-onchocerciasis-environmental-suitability-geospatial-estimates). The data are presented as 5x5 km squares and a full description of the methods can be found [here](https://journals.plos.org/plosntds/article?id=10.1371/journal.pntd.0008824). Variables in the analysis include climate, vegetation, vector breeding sites and whether an area is rural or urban. The suitability score is from 0 (low suitability) to 100 (high suitability).
+
+```{r angola-map-raster}
+
+# Import raster data in raster format
+africa_oncho_raster <- raster::raster(here('data', 'IHME_AFRICA_ONCHO_ENV_SUIT_MEAN_Y2020M08D26.TIF'))
+
+angola_oncho_raster_crop <- crop(africa_oncho_raster, ang_shp)
+
+angola_oncho_point  <-  rasterToPoints(angola_oncho_raster_crop)
+angola_oncho_point_df <-  data.frame(angola_oncho_point)
+colnames(angola_oncho_point_df) = c("lon", "lat", "suitability")
+
+ang_raster_map <- ggplot(ang_shp) +
+  geom_sf() +
+  geom_raster(data = angola_oncho_point_df, aes(lon, lat, fill = suitability), alpha = .7) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+ang_raster_map
+
+rm(ang_raster_map,angola_oncho_raster_crop)
+```
+
+Data on endemicity are available from the [ESPEN data portal](https://espen.afro.who.int/countries/angola).
+
+```{r angola-map-endemicity}
+ang_espen_data <-
+  read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
+  filter(Year == 2020)
+
+unknown_iu <- ang_espen_data %>% filter(grepl('Unknown', Endemicity)) %>% pull(IU_ID)
+
+ang_endemicity_map <- ang_shp %>%
+  left_join(ang_espen_data,
+            by = c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID')) %>%
+  ggplot() +
+  geom_sf(aes(fill = Endemicity)) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='') + 
+  theme(legend.position=c(0.85, 0.9)) +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+ang_endemicity_map
+
+ang_endemicity_tbl <- ang_espen_data %>%
+  tabyl(Endemicity) %>%
+  adorn_pct_formatting(rounding = "half up", digits = 0) %>%
+  knitr::kable()
+ang_endemicity_tbl
+
+rm(ang_endemicity_map,ang_endemicity_tbl)
+
+
+```
+
+As of 2020, there were 116 IUs with unknown endemicity. MDA for lymphatic filariasis (LF) was reported in 28 of these 116 IUs.
+
+```{r lf-mapping}
+lf_raw <- read.csv(here('data', 'input', 'espen_platform_lf.csv')) 
+
+lf_wd <- lf_raw %>% 
+  rename(lf_status=Endemicity,
+         lf_mda=MDA_scheme)  
+
+ang_lf_endemicity_data <- ang_shp %>% 
+  left_join(lf_wd %>% filter(Year==2020), by='IU_ID')
+
+# province_sf <- ang_adm3_shp %>% group_by(ADM1_EN) %>% select(ADM1_EN,geometry) %>% 
+#   summarise()
+
+lf_endemicity_map <- ggplot() +
+  geom_sf(data=ang_lf_endemicity_data,aes(fill = lf_status), color = "gray50", size = 0.5) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='') + 
+  theme(legend.position=c(0.85, 0.9))
+
+lf_endemicity_map
+```
+
+
+
+```{r oncho-loaloa-lf-mapping}
+library(tidyverse)
+library(here)
+library(janitor)
+
+oncho_raw <- read.csv(here('data', 'input', 'espen_platform_oncho.csv'))
+
+oncho_wd <- oncho_raw %>%  rename(oncho_status=Endemicity,
+                                  oncho_mda=MDA_scheme) 
+
+loa_loa_raw <- read.csv(here('data', 'input', 'espen_platform_loaloa.csv')) 
+
+loa_loa_wd <- loa_loa_raw %>% 
+  rename(loaloa_status=Endemicity)  
+
+
+all_diseases <- oncho_wd %>% 
+  left_join(loa_loa_wd, by=c('ADMIN1', 'IU_ID', 'Year')) %>% 
+  left_join(lf_wd, by=c('ADMIN1','IU_ID','Year'))
+
+all_diseases_summary <- all_diseases %>% 
+  mutate(oncho_endemic=case_when(grepl("Endemic", oncho_status) ~"Yes",
+                                 TRUE ~ "Unknown"),
+         loaloa_endemic=case_when(grepl("Endemic", loaloa_status) ~"Yes",
+                                  TRUE ~ "No"),
+         lf_endemic=case_when(grepl("\\<Endemic\\>", lf_status) ~"Yes",
+                              grepl("\\<Non-endemic\\>", lf_status) ~"No",
+                              TRUE ~ "Unknown"))
+
+ang_shp <- read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>% 
+  filter(ADMIN0=='Angola')
+
+ang_adm3_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) 
+
+endemicity_categories <- all_diseases_summary %>%  
+  filter(Year==2020,oncho_endemic=="Unknown") %>% 
+  select(IU_ID,oncho_endemic,loaloa_endemic,lf_endemic) %>% 
+  #count(oncho_endemic,loaloa_endemic,lf_endemic, sort=TRUE) 
+mutate(final_endemicity=paste(loaloa_endemic,lf_endemic, sep="-"))
+
+ang_endemicity_data <- ang_shp %>%
+  left_join(endemicity_categories,
+            by = c('IU_ID'))
+
+ang_lf_endemicity_data <- ang_shp %>% 
+  left_join(lf_wd %>% filter(Year==2020), by='IU_ID')
+
+oncho_loaloa_lf_combined_map1 <- ggplot() +
+  geom_sf(data=ang_endemicity_data,aes(fill = final_endemicity), color = "gray50", size = 0.5) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+    labs(fill='Loaloa-LF') + 
+  theme(legend.position='top')
+oncho_loaloa_lf_combined_map1
+
+oncho_loaloa_lf_combined_map2 <- ggplot() +
+  geom_sf(data=ang_endemicity_data %>% filter(!is.na(final_endemicity)),aes(fill = final_endemicity), color = "gray50", size = 0.5) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='Loaloa-LF') + 
+  theme(legend.position='top') +
+  facet_wrap(~final_endemicity)
+oncho_loaloa_lf_combined_map2
+```
+
+
+To prioritise IUs for mapping, we can focus on the 116 IUs classified as "Unknown". We can also use the environmental suitability to reduce the number of IUs for consideration.
+
+```{r angola-map-unknown-endemicity}
+# Load oncho environmental suitability raster data
+africa_oncho_rs <- stack(here('data', 'IHME_AFRICA_ONCHO_ENV_SUIT_MEAN_Y2020M08D26.TIF'))
+
+#Crop raster to Angola shapefile
+angola_oncho_combined <- 
+  exact_extract(
+    africa_oncho_rs, 
+    ang_shp,
+    progress = FALSE
+  )  %>% 
+  bind_rows(., .id = "id") %>% 
+  as_tibble()
+
+
+#--- weighted mean ---#
+
+oncho_by_id <- angola_oncho_combined %>% 
+  #--- convert from character to numeric  ---#
+  mutate(id = as.numeric(id)) %>% 
+  #--- group summary ---#
+  group_by(id) %>% 
+  filter(!is.na(value)) %>% 
+  #summarise(oncho_mean=mean(value))
+  summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))
+
+
+#--- merge ---#
+oncho_angola <- ang_shp %>% 
+  mutate(id := seq_len(nrow(.))) %>% 
+  left_join(., oncho_by_id, by = "id") %>% 
+  dplyr::select(id, oncho_mean_aw, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID') %>% 
+  left_join(ang_espen_data, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID'))  
+
+oncho_angola_mean_env_iu <- oncho_angola %>% 
+  as.data.frame() %>% 
+  select('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID', 'oncho_mean_aw')
+
+# Quick map to check data
+ang_unknown_endemicity_map <- oncho_angola %>% 
+  mutate(oncho_mean_aw = ifelse(grepl('Unknown', Endemicity),oncho_mean_aw,
+                                NA)) %>% 
+  ggplot() +
+  geom_sf(aes(fill=oncho_mean_aw)) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+
+ang_unknown_endemicity_map
+
+rm(africa_oncho_rs,ang_unknown_endemicity_map,oncho_by_id)
+```
+
+This map shows the weighted mean environmental suitability for IUs with unknown endemicity. Several IUs in Northern Angola have very high environmental suitability scores.
+
+In the centre of the country, there are several IUs with moderate environmental suitability scores in the Huambo region.
+
+A critical limitation of this analysis is that by calculating an aggregate score, in this case, a weighted mean, for each IU, there will be some IUs with a low aggregate score that contains several areas with high environmental suitability scores. This can be demonstrated by looking at Huambo province.
+
+## Environmental suitability threshold
+
+In the paper describing the methods and results of the predicted environmental suitability, a mean prediction of \>=71 to have the highest probability of environmental suitability.
+
+We can use this value as an additional filter to identify implementation units in Angola with unknown endemicity and at least one 5 x 5-km location reaching this threshold.
+
+```{r angole-env-byprovince}
+
+africa_oncho_rs <- stack(here('data', 'IHME_AFRICA_ONCHO_ENV_SUIT_MEAN_Y2020M08D26.TIF'))
+
+#Crop raster to Angola shapefile
+angola_oncho_raster_df <- 
+  exact_extract(
+    africa_oncho_rs, 
+    ang_shp,
+    progress = FALSE
+  )  %>% 
+  bind_rows(., .id = "id") %>% 
+  as_tibble() %>% 
+  #--- convert from character to numeric  ---#
+  mutate(id = as.numeric(id)) %>% 
+  #--- group summary ---#
+  group_by(id) %>% 
+  filter(!is.na(value)) 
+
+#--- merge ---#
+oncho_angola_env_threshold <- ang_shp %>% 
+  mutate(id := seq_len(nrow(.))) %>% 
+  left_join(., angola_oncho_raster_df, by = "id") %>% 
+  dplyr::select(id, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID', 'value') %>% 
+  left_join(ang_espen_data, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID'))  
+
+  
+  pacman::p_load(ggbeeswarm)
+
+angola_beeswarm_gph <- oncho_angola_env_threshold %>% 
+  #filter(IU_ID %in% unknown_iu) %>% 
+ggplot(.,aes((ADMIN2), value, color=Endemicity)) + geom_quasirandom() +
+  geom_hline(yintercept = 71,
+             color = "black", size=1.5) +
+  labs(y = "Environmental suitability (0=lowest, 100=highest)", x = "") +
+  coord_flip() +
+  theme(legend.position='top') +
+  facet_wrap(~ ADMIN1, scales='free_y', ncol=6)
+
+angola_beeswarm_gph
+
+```
+
+
+
+```{r angola-env-exceeds71}
+
+exceeds71 <- angola_oncho_point_df %>% 
+  filter(suitability>=71)
+
+exceeds71_map <- ggplot(ang_shp) +
+  geom_sf()+
+  geom_raster(data = exceeds71, aes(lon, lat, fill = suitability), alpha = .7) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+exceeds71_map
+
+rm(angola_oncho_point_df,exceeds71_map)
+```
+
+```{r angola-unknownendemicity-exceeds71}
+exceeds71_raster <- angola_oncho_combined %>% 
+  filter(value>=71)
+
+exceeds71_by_id <- exceeds71_raster %>% 
+  #--- convert from character to numeric  ---#
+  mutate(id = as.numeric(id)) %>% 
+  #--- group summary ---#
+  group_by(id) %>% 
+  filter(!is.na(value)) %>% 
+  count(id)
+#summarise(oncho_mean=mean(value))
+#summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))
+
+
+#--- merge ---#
+exceeds71_oncho <- ang_shp %>% 
+  mutate(id := seq_len(nrow(.))) %>% 
+  left_join(., exceeds71_by_id, by = "id") %>% 
+  dplyr::select(id, n, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID') %>% 
+  left_join(ang_espen_data, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID')) %>% 
+  mutate(n = ifelse(grepl('Unknown', Endemicity),n,
+                    NA))
+
+
+# Quick map to check data
+exceeds71_oncho_map <- exceeds71_oncho %>% 
+  ggplot() +
+  geom_sf(aes(fill=n)) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='Number of locations with high environmental suitability') +
+  theme(legend.position='top') +
+  scale_fill_viridis_c(option = "heat",begin = 0.1)
+#sc +
+#north(ang_shp) +
+#scalebar(ang_shp, dist = 250, dist_unit = "km",
+#  transform = TRUE, model = "WGS84")
+
+
+exceeds71_oncho_map
+rm(exceeds71_oncho_map,exceeds71_raster)
+```
+
+```{r}
+iu_env_suitability <- exceeds71_oncho %>% 
+  as.tibble() %>% 
+  filter(n>0) %>% 
+  select(IU_ID,Endemicity,n)
+
+iu_env_suitability_list <- iu_env_suitability %>% pull(IU_ID)
+```
+
+There are `r nrow(iu_env_suitability)` implementation units with unknown endemicity and at least one pixel with an environmental suitability score \>=71.
+
+Filtering the implementation units that have unknown endemicity.
+
+```{r}
+ang_unknown_endemicity_env_suitability_map <- oncho_angola %>% 
+  mutate(oncho_mean_aw = ifelse(IU_ID %in% iu_env_suitability_list,oncho_mean_aw,NA)) %>% 
+  mutate(oncho_mean_aw = ifelse(grepl('Unknown', Endemicity),oncho_mean_aw,NA)) %>% 
+  ggplot() +
+  geom_sf(aes(fill=oncho_mean_aw)) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+
+ang_unknown_endemicity_env_suitability_map
+
+```
+
+```{r angola-loaloa-map}
+ang_espen_loaloa_data <-
+  read.csv(here('data', 'input', 'espen_platform_loaloa.csv')) %>%
+  filter(Year == 2020)
+
+ang_endemicity_loaloa_map <- ang_shp %>%
+  left_join(ang_espen_loaloa_data,
+            by = c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID')) %>%
+  ggplot() +
+  geom_sf(aes(fill = Endemicity)) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='') + 
+  theme(legend.position=c(0.85, 0.9)) +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+ang_endemicity_loaloa_map
+
+ang_endemicity_loa_loa_tbl <- ang_espen_loaloa_data %>%
+  tabyl(Endemicity) %>%
+  adorn_pct_formatting(rounding = "half up", digits = 0) %>%
+  knitr::kable()
+
+#rm(ang_endemicity_loaloa_map,ang_endemicity_loa_loa_tbl)
+```
+
+```{r angola-loaloa-endemicity-envsuitability-map}
+
+iu_loaloa_list <- ang_espen_loaloa_data %>% 
+  filter(Endemicity!='Endemic') %>% 
+  pull(IU_ID)
+
+ang_loaloa_unknown_endemicity_env_suitability_map <- oncho_angola %>% 
+  mutate(oncho_mean_aw = ifelse(IU_ID %in% iu_env_suitability_list,oncho_mean_aw,NA)) %>% 
+  mutate(oncho_mean_aw = ifelse(grepl('Unknown', Endemicity),oncho_mean_aw,NA)) %>% 
+  mutate(oncho_mean_aw = ifelse(IU_ID %in% iu_loaloa_list,oncho_mean_aw,NA))  %>% 
+  ggplot() +
+  geom_sf(aes(fill=oncho_mean_aw)) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+
+ang_loaloa_unknown_endemicity_env_suitability_map
+
+env_suitability_unk_endemicity_no_loaloa <- oncho_angola %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  filter(IU_ID %in% iu_env_suitability_list) %>% 
+  filter(IU_ID %in% iu_loaloa_list)
+
+
+```
+
+```{r huambo-map}
+
+huambo_unknown <- ang_espen_data %>% 
+  as.data.frame() %>% 
+  filter(ADMIN1=='Huambo') %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  filter(IU_ID %in% iu_env_suitability_list) %>% 
+  filter(IU_ID %in% iu_loaloa_list) %>% 
+  pull(IU_ID)
+
+huambo_oncho_map <- oncho_angola %>% 
+  #filter(grepl('Unknown', Endemicity)) %>% 
+  #filter(ADMIN1=='Huambo') %>% 
+  ggplot() +
+  geom_sf(aes(fill=ADMIN1), lwd=1) +
+  gghighlight(IU_ID %in% huambo_unknown) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+  geom_sf_label_repel(aes(label = IUs_NAME),
+                      force = 100, nudge_x = -2, seed = 10) +
+  labs(fill='') +
+  theme(legend.position='top') +
+  # geom_sf_label_repel(aes(label = IUs_NAME),
+  #                      force = 100, nudge_x = -2, seed = 10) +
+  #sc +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+huambo_oncho_map
+rm(huambo_oncho_map)
+```
+
+```{r huambo-env-suitability2}
+
+huambo_shp <- ang_shp %>% 
+  filter(IU_ID %in% huambo_unknown) 
+
+huambo_oncho_crop <- crop(africa_oncho_raster, huambo_shp)
+
+huambo_oncho_point  <-  rasterToPoints(huambo_oncho_crop)
+huambo_oncho_point_df <-  data.frame(huambo_oncho_point)
+colnames(huambo_oncho_point_df) = c("lon", "lat", "oncho_mean_aw")
+
+huambo_raster_map <- ggplot(huambo_shp) +
+  geom_raster(data = huambo_oncho_point_df, aes(lon, lat, fill = oncho_mean_aw), alpha = .7) +
+  theme(legend.position = "none") +
+  geom_sf(fill=alpha(0.2)) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(huambo_shp) +
+  scalebar(huambo_shp, dist = 50, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+#huambo_raster_map
+
+huambo_unknown_endemicity_map <- oncho_angola %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  filter(ADMIN1=='Huambo') %>% 
+  filter(IU_ID %in% huambo_unknown) %>% 
+  #filter(IU_ID %in% iu_env_suitability_list) %>% 
+  ggplot() +
+  geom_sf(aes(fill=oncho_mean_aw), lwd=1) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(huambo_shp) +
+  scalebar(huambo_shp, dist = 50, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+#huambo_unknown_endemicity_map
+
+huambo_raster_map 
+huambo_unknown_endemicity_map 
+
+#rm(huambo_oncho_crop,huambo_oncho_point,huambo_oncho_point_df,huambo_raster_map,huambo_unknown_endemicity_map,huambo_unknown_endemicity_map)
+```
+
+Both maps show environmental suitability results for Huambo but the map on the left shows the value for each 5x5 km while the map on the right shows the mean value for each of the 6 IUs in Huambo with unknown endemicity and at least one pixel with an environmental suitability score greater than or equal to 71.
+
+The area, and in some cases the population, within each IU is large. We can also look at the environmental suitability for smaller areas to assist with planning.
+
+For this example, we will look at the IU called Bailundo.
+
+```{r cachiungo-only}
+cachiungo_oncho_map <- oncho_angola %>% 
+  #filter(grepl('Unknown', Endemicity)) %>% 
+  #filter(ADMIN1=='Huambo') %>% 
+  ggplot() +
+  geom_sf(aes(fill=oncho_mean_aw), lwd=1) +
+  gghighlight(IUs_NAME=='Cachiungo') +
+  geom_sf_label_repel(aes(label = IUs_NAME),
+                      force = 100, nudge_x = -2, seed = 10) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(oncho_angola) +
+  scalebar(oncho_angola, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+cachiungo_oncho_map
+```
+
+By focusing on this IU, we can show the borders associated with the lower level of geography and the 5x5-km results for environmental suitability.
+
+```{r cachiungo-adm3-suitability}
+
+cachiungo_adm3_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
+  filter(ADM2_EN=='Catchiungo')
+
+cachiungo_adm3_oncho_crop <- raster::crop(africa_oncho_raster, cachiungo_adm3_shp)
+
+cachiungo_oncho_point  <-  rasterToPoints(cachiungo_adm3_oncho_crop)
+cachiungo_oncho_point_df <-  data.frame(cachiungo_oncho_point)
+colnames(cachiungo_oncho_point_df) = c("lon", "lat", "suitability")
+
+cachiungo_map_label <- ggplot() +
+  geom_raster(data = cachiungo_oncho_point_df, aes(lon, lat, fill = suitability), alpha = .7) +
+  geom_sf_label(data = cachiungo_adm3_shp,aes(label = ADM3_EN)) +
+  #scale_fill_fermenter(n.breaks = 5, palette = "YlOrRd", direction = +1) +
+  sc + 
+  geom_sf(data = cachiungo_adm3_shp, fill = NA) +
+  theme_minimal() +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  #blank() +
+  north(cachiungo_adm3_shp) +
+  scalebar(cachiungo_adm3_shp, dist = 25, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+cachiungo_map_label
+rm(cachiungo_map_label,cachiungo_adm3_shp,cachiungo_oncho_point,cachiungo_adm3_oncho_crop,cachiungo_oncho_point_df)
+
+```
+
+From this map, we might decide to focus on Bailundo & Lunge as these areas appear to have the highest environmental suitability score.
+
+The Excel file supplied with this document includes the list of 116 IUs with unknown endemicity, the weighted mean environmental suitability score, and the number of locations in each IU exceeding the environmental threshold value of 71.
+
+```{r}
+
+loaloa_summary_df <- ang_espen_loaloa_data %>% select(IU_ID, loaloa_Endemicity=Endemicity)
+
+final_table <- exceeds71_oncho %>% 
+  as.data.frame() %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  left_join(oncho_angola_mean_env_iu, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID')) %>% 
+  left_join(loaloa_summary_df, by=c('IU_ID')) %>% 
+  select(ADMIN1,IUs_NAME, PopTot, Endemicity, Enironment_suitability=oncho_mean_aw, locations_exceeding_threshold=n, loaloa_Endemicity)
+
+write.csv(final_table, here('data', 'output', 'ang_oncho_final_table.csv'))
+
+rm(exceeds71_oncho,oncho_angola_mean_env_iu)
+```
