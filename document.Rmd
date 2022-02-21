@@ -142,15 +142,19 @@ lf_wd <- lf_raw %>%
          lf_mda=MDA_scheme)  
 
 ang_lf_endemicity_data <- ang_shp %>% 
-  left_join(lf_wd %>% filter(Year==2020), by='IU_ID')
+  left_join(lf_wd %>% 
+              filter(Year==2020), by='IU_ID') %>% 
+  filter(IU_ID %in% unknown_iu)
+  
 
 # province_sf <- ang_adm3_shp %>% group_by(ADM1_EN) %>% select(ADM1_EN,geometry) %>% 
 #   summarise()
 
 lf_endemicity_map <- ggplot() +
   geom_sf(data=ang_lf_endemicity_data,aes(fill = lf_status), color = "gray50", size = 0.5) +
-  geom_sf(fill = "transparent", color = "black", size = 1.5, 
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
           data = adm1_shp) +
+      scale_fill_discrete(na.translate = F) +
   labs(fill='') + 
   theme(legend.position=c(0.85, 0.9))
 
@@ -168,6 +172,8 @@ oncho_raw <- read.csv(here('data', 'input', 'espen_platform_oncho.csv'))
 
 oncho_wd <- oncho_raw %>%  rename(oncho_status=Endemicity,
                                   oncho_mda=MDA_scheme) 
+
+oncho_unknown_ius <- oncho_wd %>% filter(grepl("Unknown",oncho_status)) %>% pull(IU_ID)
 
 loa_loa_raw <- read.csv(here('data', 'input', 'espen_platform_loaloa.csv')) 
 
@@ -195,29 +201,35 @@ ang_adm3_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_
 
 endemicity_categories <- all_diseases_summary %>%  
   filter(Year==2020,oncho_endemic=="Unknown") %>% 
+    filter(IU_ID %in% oncho_unknown_ius) %>% 
   select(IU_ID,oncho_endemic,loaloa_endemic,lf_endemic) %>% 
   #count(oncho_endemic,loaloa_endemic,lf_endemic, sort=TRUE) 
 mutate(final_endemicity=paste(loaloa_endemic,lf_endemic, sep="-"))
 
 ang_endemicity_data <- ang_shp %>%
   left_join(endemicity_categories,
-            by = c('IU_ID'))
+            by = c('IU_ID')) 
 
-ang_lf_endemicity_data <- ang_shp %>% 
-  left_join(lf_wd %>% filter(Year==2020), by='IU_ID')
+# 
+# ang_lf_endemicity_data <- ang_shp %>% 
+#   left_join(lf_wd %>% filter(Year==2020), by='IU_ID') 
+  
 
 oncho_loaloa_lf_combined_map1 <- ggplot() +
   geom_sf(data=ang_endemicity_data,aes(fill = final_endemicity), color = "gray50", size = 0.5) +
     geom_sf(fill = "transparent", color = "black", size = 1.5, 
           data = adm1_shp) +
     labs(fill='Loaloa-LF') + 
+      scale_fill_discrete(na.translate = F) +
   theme(legend.position='top')
 oncho_loaloa_lf_combined_map1
 
 oncho_loaloa_lf_combined_map2 <- ggplot() +
-  geom_sf(data=ang_endemicity_data %>% filter(!is.na(final_endemicity)),aes(fill = final_endemicity), color = "gray50", size = 0.5) +
+  geom_sf(data=ang_endemicity_data %>% filter(!is.na(final_endemicity)),
+          aes(fill = final_endemicity), color = "gray50", size = 0.5) +
     geom_sf(fill = "transparent", color = "black", size = 1.5, 
           data = adm1_shp) +
+        scale_fill_discrete(na.translate = F) +
   labs(fill='Loaloa-LF') + 
   theme(legend.position='top') +
   facet_wrap(~final_endemicity)
@@ -322,17 +334,18 @@ oncho_angola_env_threshold <- ang_shp %>%
   mutate(id := seq_len(nrow(.))) %>% 
   left_join(., angola_oncho_raster_df, by = "id") %>% 
   dplyr::select(id, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID', 'value') %>% 
-  left_join(ang_espen_data, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID'))  
+  left_join(ang_espen_data, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID'))  %>% 
+  filter(IU_ID %in% unknown_iu)
 
   
   pacman::p_load(ggbeeswarm)
 
 angola_beeswarm_gph <- oncho_angola_env_threshold %>% 
   #filter(IU_ID %in% unknown_iu) %>% 
-ggplot(.,aes((ADMIN2), value, color=Endemicity)) + geom_quasirandom() +
+ggplot(.,aes((ADMIN2), value)) + geom_quasirandom() +
   geom_hline(yintercept = 71,
-             color = "black", size=1.5) +
-  labs(y = "Environmental suitability (0=lowest, 100=highest)", x = "") +
+             color = "red", size=1, linetype="dashed") +
+  labs(y = "Environmental suitability (0=lowest, 100=highest)", x = "", title = "Onchocerciasis environmental suitability score for implementation units with unknown onchocerciasis endemicity", subtitle = "Red dashed line at threshold value (>=71) for environmental suitability. Above this point, areas have high susceptibility") +
   coord_flip() +
   theme(legend.position='top') +
   facet_wrap(~ ADMIN1, scales='free_y', ncol=6)
@@ -341,6 +354,35 @@ angola_beeswarm_gph
 
 ```
 
+```{r angola-env-prop-over71}
+
+prop_over71 <- oncho_angola_env_threshold %>% 
+  as_tibble() %>% 
+  filter(IU_ID %in% unknown_iu) %>% 
+  mutate(over71=case_when(value>=71 ~1, 
+                          TRUE ~0)) %>% 
+  select(IU_ID, over71) %>% 
+  count(IU_ID,over71) %>% 
+  group_by(IU_ID) %>% 
+  mutate(prop_over71=100*(n/sum(n))) %>% 
+  filter(over71==1) %>% 
+  select(IU_ID, prop_over71)
+
+prop_over71_map <- ang_shp %>%
+  left_join(prop_over71,
+            by = c('IU_ID')) %>%
+  ggplot() +
+  geom_sf(aes(fill = prop_over71)) +
+  scale_fill_continuous(type = "viridis") +
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
+          data = adm1_shp) +
+  labs(fill='% of IU >=71 environmental suitability score') + 
+  theme(legend.position=c(0.85, 0.9)) +
+  north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+  
+```
 
 
 ```{r angola-env-exceeds71}
@@ -445,16 +487,18 @@ ang_unknown_endemicity_env_suitability_map
 ```{r angola-loaloa-map}
 ang_espen_loaloa_data <-
   read.csv(here('data', 'input', 'espen_platform_loaloa.csv')) %>%
-  filter(Year == 2020)
+  filter(Year == 2020) %>% 
+  filter(IU_ID %in% oncho_unknown_ius)
 
 ang_endemicity_loaloa_map <- ang_shp %>%
   left_join(ang_espen_loaloa_data,
             by = c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID')) %>%
   ggplot() +
   geom_sf(aes(fill = Endemicity)) +
-    geom_sf(fill = "transparent", color = "black", size = 1.5, 
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
           data = adm1_shp) +
   labs(fill='') + 
+    scale_fill_discrete(na.translate = F) +
   theme(legend.position=c(0.85, 0.9)) +
   north(ang_shp) +
   scalebar(ang_shp, dist = 250, dist_unit = "km",
@@ -484,6 +528,7 @@ ang_loaloa_unknown_endemicity_env_suitability_map <- oncho_angola %>%
   geom_sf(aes(fill=oncho_mean_aw)) +
     geom_sf(fill = "transparent", color = "black", size = 1.5, 
           data = adm1_shp) +
+  scale_fill_discrete(na.translate = F) +
   labs(fill='Environmental suitability') +
   theme(legend.position='top') +
   sc +
