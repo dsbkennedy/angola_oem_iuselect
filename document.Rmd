@@ -18,9 +18,13 @@ knitr::opts_chunk$set(echo = FALSE,
                       fig.retina = 2,
                       out.width = "100%")
 require(pacman)
-pacman::p_load(raster, sf, exactextractr, here, leaflet, leaflet.extras, 
-               janitor, patchwork,RColorBrewer,ggsn,gghighlight,ggsflabel,conflicted)
+pacman::p_load(raster, sf, exactextractr, here, 
+               leaflet, leaflet.extras, 
+               janitor, patchwork,RColorBrewer,
+               ggsn,gghighlight,ggsflabel,conflicted,ggbeeswarm)
 library(tidyverse)
+
+
 conflict_prefer("select", "dplyr")
 conflict_prefer("filter", "dplyr")
 conflict_prefer("scalebar", "ggsn")
@@ -28,6 +32,9 @@ conflict_prefer("geom_sf_label", "ggsflabel")
 
 myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
 sc <- scale_fill_gradientn(colours = myPalette(100), limits=c(1, 100))
+map_options <- north(ang_shp) +
+  scalebar(ang_shp, dist = 250, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
 ```
 
 Selecting municipalities for Onchocerciasis elimination mapping (OEM) can be supported by evidence from publicly available data on endemicity status and environmental suitability.
@@ -37,31 +44,47 @@ Selecting municipalities for Onchocerciasis elimination mapping (OEM) can be sup
 The data for mapping the Implementation Units (IUs) are from the [ESPEN data portal](https://espen.afro.who.int/sites/default/files/content/cartography/files/ESPEN_IU_2020_0.zip). There are 164 implementation units in Angola.
 
 ```{r angola-map}
-ang_shp <- read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>% 
-  filter(ADMIN0=='Angola')
+ang_shp <-
+  read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>%
+  filter(ADMIN0 == 'Angola')
 
-adm3_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) 
+adm3_shp <-
+  read_sf(here(
+    'data',
+    'input',
+    'shp',
+    'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp'
+  ))
 
-adm1_shp <- adm3_shp %>% 
-  group_by(ADM1_EN) %>% 
-  #select(ADM1_EN,geometry) %>% 
+adm1_shp <- adm3_shp %>%
+  group_by(ADM1_EN) %>%
   summarise()
 
-adm2_shp <- adm3_shp %>% 
-  group_by(ADM2_EN) %>% 
-  #select(ADM1_EN,geometry) %>% 
+adm2_shp <- adm3_shp %>%
+  group_by(ADM2_EN) %>%
   summarise()
 
 ang_map <- ggplot() +
-  geom_sf(fill = "transparent", color = "blue", size = 1,
-          data = ang_shp) +
-    geom_sf(fill = "transparent", color = "red", size = 1.5, 
-          data = adm1_shp) +
-  # geom_sf(fill = "transparent", color = "black", size = 0.5,
-  #         data = adm3_shp) +
+  geom_sf(
+    fill = "transparent",
+    color = "blue",
+    size = 1,
+    data = ang_shp
+  ) +
+  geom_sf(
+    fill = "transparent",
+    color = "red",
+    size = 1.5,
+    data = adm1_shp
+  ) +
   north(ang_shp) +
-  scalebar(ang_shp, dist = 250, dist_unit = "km",
-           transform = TRUE, model = "WGS84")
+  scalebar(
+    ang_shp,
+    dist = 250,
+    dist_unit = "km",
+    transform = TRUE,
+    model = "WGS84"
+  )
 
 ang_map
 rm(ang_map)
@@ -104,20 +127,32 @@ ang_espen_data <-
   read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
   filter(Year == 2020)
 
-unknown_iu <- ang_espen_data %>% filter(grepl('Unknown', Endemicity)) %>% pull(IU_ID)
+unknown_iu <-
+  ang_espen_data %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  pull(IU_ID)
 
 ang_endemicity_map <- ang_shp %>%
   left_join(ang_espen_data,
             by = c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID')) %>%
   ggplot() +
   geom_sf(aes(fill = Endemicity)) +
-  geom_sf(fill = "transparent", color = "black", size = 1.5, 
-          data = adm1_shp) +
-  labs(fill='') + 
-  theme(legend.position=c(0.85, 0.9)) +
+  geom_sf(
+    fill = "transparent",
+    color = "black",
+    size = 1.5,
+    data = adm1_shp
+  ) +
+  labs(fill = 'Onchocerciasis endemicity categories (2020)') +
+  theme(legend.position = c(0.85, 0.9)) +
   north(ang_shp) +
-  scalebar(ang_shp, dist = 250, dist_unit = "km",
-           transform = TRUE, model = "WGS84")
+  scalebar(
+    ang_shp,
+    dist = 250,
+    dist_unit = "km",
+    transform = TRUE,
+    model = "WGS84"
+  )
 
 ang_endemicity_map
 
@@ -127,7 +162,7 @@ ang_endemicity_tbl <- ang_espen_data %>%
   knitr::kable()
 ang_endemicity_tbl
 
-rm(ang_endemicity_map,ang_endemicity_tbl)
+rm(ang_endemicity_map, ang_endemicity_tbl)
 
 
 ```
@@ -135,28 +170,31 @@ rm(ang_endemicity_map,ang_endemicity_tbl)
 As of 2020, there were 116 IUs with unknown endemicity. MDA for lymphatic filariasis (LF) was reported in 28 of these 116 IUs.
 
 ```{r lf-mapping}
-lf_raw <- read.csv(here('data', 'input', 'espen_platform_lf.csv')) 
+lf_raw <- read.csv(here('data', 'input', 'espen_platform_lf.csv'))
 
-lf_wd <- lf_raw %>% 
-  rename(lf_status=Endemicity,
-         lf_mda=MDA_scheme)  
+lf_wd <- lf_raw %>%
+  rename(lf_status = Endemicity,
+         lf_mda = MDA_scheme)
 
-ang_lf_endemicity_data <- ang_shp %>% 
-  left_join(lf_wd %>% 
-              filter(Year==2020), by='IU_ID') %>% 
+ang_lf_endemicity_data <- ang_shp %>%
+  left_join(lf_wd %>%
+              filter(Year == 2020), by = 'IU_ID') %>%
   filter(IU_ID %in% unknown_iu)
-  
-
-# province_sf <- ang_adm3_shp %>% group_by(ADM1_EN) %>% select(ADM1_EN,geometry) %>% 
-#   summarise()
 
 lf_endemicity_map <- ggplot() +
-  geom_sf(data=ang_lf_endemicity_data,aes(fill = lf_status), color = "gray50", size = 0.5) +
-  geom_sf(fill = "transparent", color = "black", size = 1.5,
-          data = adm1_shp) +
-      scale_fill_discrete(na.translate = F) +
-  labs(fill='') + 
-  theme(legend.position=c(0.85, 0.9))
+  geom_sf(data = ang_lf_endemicity_data,
+          aes(fill = lf_status),
+          color = "gray50",
+          size = 0.5) +
+  geom_sf(
+    fill = "transparent",
+    color = "black",
+    size = 1.5,
+    data = adm1_shp
+  ) +
+  scale_fill_discrete(na.translate = F) +
+  labs(fill = '') +
+  theme(legend.position = c(0.85, 0.9))
 
 lf_endemicity_map
 ```
@@ -164,75 +202,97 @@ lf_endemicity_map
 
 
 ```{r oncho-loaloa-lf-mapping}
-library(tidyverse)
-library(here)
-library(janitor)
+oncho_raw <-
+  read.csv(here('data', 'input', 'espen_platform_oncho.csv'))
 
-oncho_raw <- read.csv(here('data', 'input', 'espen_platform_oncho.csv'))
+oncho_wd <- oncho_raw %>%  rename(oncho_status = Endemicity,
+                                  oncho_mda = MDA_scheme)
 
-oncho_wd <- oncho_raw %>%  rename(oncho_status=Endemicity,
-                                  oncho_mda=MDA_scheme) 
+oncho_unknown_ius <-
+  oncho_wd %>% filter(grepl("Unknown", oncho_status)) %>% pull(IU_ID)
 
-oncho_unknown_ius <- oncho_wd %>% filter(grepl("Unknown",oncho_status)) %>% pull(IU_ID)
+loa_loa_raw <-
+  read.csv(here('data', 'input', 'espen_platform_loaloa.csv'))
 
-loa_loa_raw <- read.csv(here('data', 'input', 'espen_platform_loaloa.csv')) 
+loa_loa_wd <- loa_loa_raw %>%
+  rename(loaloa_status = Endemicity)
 
-loa_loa_wd <- loa_loa_raw %>% 
-  rename(loaloa_status=Endemicity)  
+all_diseases <- oncho_wd %>%
+  left_join(loa_loa_wd, by = c('ADMIN1', 'IU_ID', 'Year')) %>%
+  left_join(lf_wd, by = c('ADMIN1', 'IU_ID', 'Year'))
 
+all_diseases_summary <- all_diseases %>%
+  mutate(
+    oncho_endemic = case_when(grepl("Endemic", oncho_status) ~ "Yes",
+                              TRUE ~ "Unknown"),
+    loaloa_endemic = case_when(grepl("Endemic", loaloa_status) ~ "Yes",
+                               TRUE ~ "No"),
+    lf_endemic = case_when(
+      grepl("\\<Endemic\\>", lf_status) ~ "Yes",
+      grepl("\\<Non-endemic\\>", lf_status) ~ "No",
+      TRUE ~ "Unknown"
+    )
+  )
 
-all_diseases <- oncho_wd %>% 
-  left_join(loa_loa_wd, by=c('ADMIN1', 'IU_ID', 'Year')) %>% 
-  left_join(lf_wd, by=c('ADMIN1','IU_ID','Year'))
+ang_shp <-
+  read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>%
+  filter(ADMIN0 == 'Angola')
 
-all_diseases_summary <- all_diseases %>% 
-  mutate(oncho_endemic=case_when(grepl("Endemic", oncho_status) ~"Yes",
-                                 TRUE ~ "Unknown"),
-         loaloa_endemic=case_when(grepl("Endemic", loaloa_status) ~"Yes",
-                                  TRUE ~ "No"),
-         lf_endemic=case_when(grepl("\\<Endemic\\>", lf_status) ~"Yes",
-                              grepl("\\<Non-endemic\\>", lf_status) ~"No",
-                              TRUE ~ "Unknown"))
+ang_adm3_shp <-
+  read_sf(here(
+    'data',
+    'input',
+    'shp',
+    'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp'
+  ))
 
-ang_shp <- read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>% 
-  filter(ADMIN0=='Angola')
-
-ang_adm3_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) 
-
-endemicity_categories <- all_diseases_summary %>%  
-  filter(Year==2020,oncho_endemic=="Unknown") %>% 
-    filter(IU_ID %in% oncho_unknown_ius) %>% 
-  select(IU_ID,oncho_endemic,loaloa_endemic,lf_endemic) %>% 
-  #count(oncho_endemic,loaloa_endemic,lf_endemic, sort=TRUE) 
-mutate(final_endemicity=paste(loaloa_endemic,lf_endemic, sep="-"))
+endemicity_categories <- all_diseases_summary %>%
+  filter(Year == 2020, oncho_endemic == "Unknown") %>%
+  filter(IU_ID %in% oncho_unknown_ius) %>%
+  select(IU_ID, oncho_endemic, loaloa_endemic, lf_endemic) %>%
+  mutate(final_endemicity = paste(loaloa_endemic, lf_endemic, sep = "-"))
 
 ang_endemicity_data <- ang_shp %>%
   left_join(endemicity_categories,
-            by = c('IU_ID')) 
-
-# 
-# ang_lf_endemicity_data <- ang_shp %>% 
-#   left_join(lf_wd %>% filter(Year==2020), by='IU_ID') 
-  
+            by = c('IU_ID'))
 
 oncho_loaloa_lf_combined_map1 <- ggplot() +
-  geom_sf(data=ang_endemicity_data,aes(fill = final_endemicity), color = "gray50", size = 0.5) +
-    geom_sf(fill = "transparent", color = "black", size = 1.5, 
-          data = adm1_shp) +
-    labs(fill='Loaloa-LF') + 
-      scale_fill_discrete(na.translate = F) +
-  theme(legend.position='top')
+  geom_sf(
+    data = ang_endemicity_data,
+    aes(fill = final_endemicity),
+    color = "gray50",
+    size = 0.5
+  ) +
+  geom_sf(
+    fill = "transparent",
+    color = "black",
+    size = 1.5,
+    data = adm1_shp
+  ) +
+  labs(fill = 'Loaloa-LF') +
+  scale_fill_discrete(na.translate = F) +
+  theme(legend.position = 'top')
+
 oncho_loaloa_lf_combined_map1
 
 oncho_loaloa_lf_combined_map2 <- ggplot() +
-  geom_sf(data=ang_endemicity_data %>% filter(!is.na(final_endemicity)),
-          aes(fill = final_endemicity), color = "gray50", size = 0.5) +
-    geom_sf(fill = "transparent", color = "black", size = 1.5, 
-          data = adm1_shp) +
-        scale_fill_discrete(na.translate = F) +
-  labs(fill='Loaloa-LF') + 
-  theme(legend.position='top') +
-  facet_wrap(~final_endemicity)
+  geom_sf(
+    data = ang_endemicity_data %>% filter(!is.na(final_endemicity)),
+    aes(fill = final_endemicity),
+    color = "gray50",
+    size = 0.5
+  ) +
+  geom_sf(
+    fill = "transparent",
+    color = "black",
+    size = 1.5,
+    data = adm1_shp
+  ) +
+  scale_fill_discrete(na.translate = F) +
+  labs(fill = 'Loaloa-LF') +
+  theme(legend.position = 'top') +
+  facet_wrap( ~ final_endemicity)
+
 oncho_loaloa_lf_combined_map2
 ```
 
@@ -241,61 +301,66 @@ To prioritise IUs for mapping, we can focus on the 116 IUs classified as "Unknow
 
 ```{r angola-map-unknown-endemicity}
 # Load oncho environmental suitability raster data
-africa_oncho_rs <- stack(here('data', 'IHME_AFRICA_ONCHO_ENV_SUIT_MEAN_Y2020M08D26.TIF'))
+africa_oncho_rs <-
+  stack(here('data', 'IHME_AFRICA_ONCHO_ENV_SUIT_MEAN_Y2020M08D26.TIF'))
 
 #Crop raster to Angola shapefile
-angola_oncho_combined <- 
-  exact_extract(
-    africa_oncho_rs, 
-    ang_shp,
-    progress = FALSE
-  )  %>% 
-  bind_rows(., .id = "id") %>% 
+angola_oncho_combined <-
+  exact_extract(africa_oncho_rs,
+                ang_shp,
+                progress = FALSE)  %>%
+  bind_rows(., .id = "id") %>%
   as_tibble()
-
 
 #--- weighted mean ---#
 
-oncho_by_id <- angola_oncho_combined %>% 
+oncho_by_id <- angola_oncho_combined %>%
   #--- convert from character to numeric  ---#
-  mutate(id = as.numeric(id)) %>% 
+  mutate(id = as.numeric(id)) %>%
   #--- group summary ---#
-  group_by(id) %>% 
-  filter(!is.na(value)) %>% 
-  #summarise(oncho_mean=mean(value))
+  group_by(id) %>%
+  filter(!is.na(value)) %>%
   summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))
 
-
 #--- merge ---#
-oncho_angola <- ang_shp %>% 
-  mutate(id := seq_len(nrow(.))) %>% 
-  left_join(., oncho_by_id, by = "id") %>% 
-  dplyr::select(id, oncho_mean_aw, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID') %>% 
-  left_join(ang_espen_data, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID'))  
+oncho_angola <- ang_shp %>%
+  mutate(id := seq_len(nrow(.))) %>%
+  left_join(., oncho_by_id, by = "id") %>%
+  dplyr::select(id, oncho_mean_aw, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID') %>%
+  left_join(ang_espen_data,
+            by = c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID'))
 
-oncho_angola_mean_env_iu <- oncho_angola %>% 
-  as.data.frame() %>% 
+oncho_angola_mean_env_iu <- oncho_angola %>%
+  as.data.frame() %>%
   select('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID', 'oncho_mean_aw')
 
 # Quick map to check data
-ang_unknown_endemicity_map <- oncho_angola %>% 
-  mutate(oncho_mean_aw = ifelse(grepl('Unknown', Endemicity),oncho_mean_aw,
-                                NA)) %>% 
+ang_unknown_endemicity_map <- oncho_angola %>%
+  mutate(oncho_mean_aw = ifelse(grepl('Unknown', Endemicity), oncho_mean_aw,
+                                NA)) %>%
   ggplot() +
-  geom_sf(aes(fill=oncho_mean_aw)) +
-    geom_sf(fill = "transparent", color = "black", size = 1.5, 
-          data = adm1_shp) +
-  labs(fill='Environmental suitability') +
-  theme(legend.position='top') +
+  geom_sf(aes(fill = oncho_mean_aw)) +
+  geom_sf(
+    fill = "transparent",
+    color = "black",
+    size = 1.5,
+    data = adm1_shp
+  ) +
+  labs(fill = 'Environmental suitability') +
+  theme(legend.position = 'top') +
   sc +
   north(ang_shp) +
-  scalebar(ang_shp, dist = 250, dist_unit = "km",
-           transform = TRUE, model = "WGS84")
-
+  scalebar(
+    ang_shp,
+    dist = 250,
+    dist_unit = "km",
+    transform = TRUE,
+    model = "WGS84"
+  )
 
 ang_unknown_endemicity_map
 
-rm(africa_oncho_rs,ang_unknown_endemicity_map,oncho_by_id)
+rm(africa_oncho_rs, ang_unknown_endemicity_map, oncho_by_id)
 ```
 
 This map shows the weighted mean environmental suitability for IUs with unknown endemicity. Several IUs in Northern Angola have very high environmental suitability scores.
@@ -336,9 +401,6 @@ oncho_angola_env_threshold <- ang_shp %>%
   dplyr::select(id, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID', 'value') %>% 
   left_join(ang_espen_data, by=c('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID'))  %>% 
   filter(IU_ID %in% unknown_iu)
-
-  
-  pacman::p_load(ggbeeswarm)
 
 angola_beeswarm_gph <- oncho_angola_env_threshold %>% 
   #filter(IU_ID %in% unknown_iu) %>% 
