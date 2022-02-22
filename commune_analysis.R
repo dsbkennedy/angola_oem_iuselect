@@ -1,10 +1,10 @@
 require(pacman)
+library(tidyverse)
 pacman::p_load(raster, sf, exactextractr, here, 
                leaflet, leaflet.extras, 
                janitor, patchwork,RColorBrewer,
                ggsn,gghighlight,ggsflabel,ggbeeswarm,
-               linelist,tidylog)
-library(tidyverse)
+               linelist,tidylog, patchwork)
 
 commune_palette <- colorRampPalette(rev(brewer.pal(5, "Spectral")))
 commune_fill <- scale_fill_stepsn(n.breaks = 5, colours = viridis::viridis(5), limits=c(1, 100))
@@ -96,17 +96,74 @@ angola_commune_oncho_collapse <- angola_commune_oncho %>%
   ggplot() +
   geom_sf(aes(fill = oncho_mean_aw)) +
   geom_sf_label(aes(label = ADM3_EN)) +
+    theme(legend.position='top') +
+    labs(x="", y="", fill="Environmental suitability") +
   commune_fill)
 
 uige <- angola_commune_oncho %>% 
   as_tibble() %>% 
   select(ADM1_EN, ADM2_EN, ADM3_EN, value) %>% 
   filter(ADM1_EN=="Uíge") 
+
+uige_boxplot_gph <- ggplot(uige, aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
+  geom_boxplot(outlier.alpha = 0.5) +
+  scale_x_continuous(sec.axis = dup_axis()) +
+  labs(x='Environmental suitability', y='Commune')
+
+uige_oncho_map + uige_boxplot_gph
+
+
+
+plot_carb <- function(df){
+  ggplot(data = df) + 
+    geom_boxplot(aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
+    theme_bw() +
+    scale_x_continuous(sec.axis = dup_axis()) +
+    labs(x='Environmental suitability', 
+         y='Commune') +
+    ggtitle(paste(~ADM1_EN)) 
+}
+
+plot_carb(uige)
+
+uige %>%
+  group_split(ADM2_EN) %>%
+  map(plot_carb)
+
+commune_boxwhisker <- angola_commune_oncho %>% 
+split(.$ADM1_EN) %>% 
+  imap(function(angola_commune_oncho, ADM1_EN) {
+    ggplot(data=angola_commune_oncho) +
+        geom_boxplot(aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
+        theme_bw() +
+        scale_x_continuous(sec.axis = dup_axis()) +
+        labs(x='Environmental suitability', 
+             y='Commune') +
+          ggtitle(paste(ADM1_EN)) 
+  })
+
+commune_map <- angola_commune_oncho_collapse %>% 
+  split(.$ADM1_EN) %>% 
+  imap(function(angola_commune_oncho_collapse, ADM1_EN) {
+    ggplot(data=angola_commune_oncho_collapse) +
+      geom_sf(aes(fill = oncho_mean_aw)) +
+      geom_sf_label(aes(label = ADM3_EN)) +
+      theme(legend.position='top') +
+      labs(x="", y="", fill="Environmental suitability") +
+      commune_fill +
+      ggtitle(paste(ADM1_EN)) 
+  })
+
+
+
+
+###################################
   
 library(ggridges)
 uige_beeswarm_gph <- uige %>% 
   ggplot(., aes(x = value, y = ADM3_EN)) + 
-  geom_density_ridges(scale = 0.9) +
+  geom_quasirandom() +
+  #geom_density_ridges(scale = 0.9) +
   geom_hline(yintercept = 71,
              color = "red", size=1, linetype="dashed") +
   labs(y = "Environmental suitability (0=lowest, 100=highest)", 
@@ -117,21 +174,41 @@ uige_beeswarm_gph <- uige %>%
   theme(legend.position='top') 
   #facet_wrap(~ ADM2_EN, scales='free_y')
 
-library(patchwork)
-uige_oncho_map / uige_beeswarm_gph
+
 
 ggplot(uige, aes(x = value, y = ADM3_EN, fill = factor(stat(quantile)))) +
   stat_density_ridges(
     geom = "density_ridges_gradient",
     calc_ecdf = TRUE,
-    quantiles = c(0.025, 0.975)
+    quantiles = c( 0.95)
   ) +
   scale_fill_manual(
-    name = "Probability", values = c("#FF0000A0", "#A0A0A0A0", "#0000FFA0"),
-    labels = c("(0, 0.025]", "(0.025, 0.975]", "(0.975, 1]")
+    name = "Probability", values = c( "#A0A0A0A0", "#0000FFA0"),
+    #labels = c("(0, 0.025]", "(0.025, 0.975]", "(0.975, 1]")
   )
+  facet_wrap(~ADM2_EN, scales='free_y')
+
+ggplot(uige, aes(x = value, y = ADM3_EN)) +
+  stat_density_ridges(quantile_lines = TRUE, quantiles = c(0.95), alpha = 0.7) +
+  facet_wrap(~ADM2_EN, scales='free_y')
 
 
+ggplot(uige, aes(x = value, color = ADM3_EN, fill = ADM3_EN)) +
+  geom_density(alpha = .15)
+
+ggplot(uige, aes(value, ADM3_EN)) +
+  geom_boxplot(aes(group = cut_width(ADM3_EN, 0.25)), outlier.alpha = 0.1)
+
+labs1 <- levels(factor(uige$ADM3_EN))
+
+ggplot(uige, aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
+  geom_boxplot(outlier.alpha = 0.5) +
+  scale_x_continuous(sec.axis = dup_axis()) +
+  labs(x='Environmental suitability', y='Commune')
+
+  theme_classic()
+
+aes(x = reorder(the_factor, desc(the_factor)), ...)
 
 ######################################
 st_crs(iu_unknown_endemicity) == st_crs(commune_shp)
