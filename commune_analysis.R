@@ -114,7 +114,7 @@ uige_oncho_map + uige_boxplot_gph
 
 
 
-plot_carb <- function(df){
+map_plot <- function(df){
   ggplot(data = df) + 
     geom_boxplot(aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
     theme_bw() +
@@ -132,27 +132,27 @@ uige %>%
 
 commune_boxwhisker <- angola_commune_oncho %>% 
 split(.$ADM1_EN) %>% 
-  imap(function(angola_commune_oncho, ADM1_EN) {
-    ggplot(data=angola_commune_oncho) +
+  imap(~ ggplot(data=.x) +
         geom_boxplot(aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
         theme_bw() +
         scale_x_continuous(sec.axis = dup_axis()) +
         labs(x='Environmental suitability', 
              y='Commune') +
-          ggtitle(paste(ADM1_EN)) 
-  })
+          ggtitle(.y) 
+  )
 
-commune_map <- angola_commune_oncho_collapse %>% 
-  split(.$ADM1_EN) %>% 
-  imap(function(angola_commune_oncho_collapse, ADM1_EN) {
-    ggplot(data=angola_commune_oncho_collapse) +
+
+commune_map <-  angola_commune_oncho_collapse %>%
+  split(.$ADM1_EN) %>%
+  imap(~ ggplot(data = .x) +
       geom_sf(aes(fill = oncho_mean_aw)) +
       geom_sf_label(aes(label = ADM3_EN)) +
-      theme(legend.position='top') +
-      labs(x="", y="", fill="Environmental suitability") +
+      theme(legend.position = 'top') +
+      labs(x = "", y = "", fill = "Environmental suitability") +
       commune_fill +
-      ggtitle(paste(ADM1_EN)) 
-  })
+      ggtitle(.y)
+  )
+
 
 
 
