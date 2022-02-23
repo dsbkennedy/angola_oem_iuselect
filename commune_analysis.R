@@ -13,7 +13,7 @@ commune_fill <- scale_fill_stepsn(n.breaks = 5, colours = viridis::viridis(5), l
 iu_shp <-
   read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>%
   filter(ADMIN0 == 'Angola') %>% 
-  select(IU_ID, ADMIN2, geometry)
+  select(IU_ID, geometry)
 
 commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
   select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
@@ -24,11 +24,21 @@ ang_espen_data <-
   filter(Year == 2020) %>% 
   select(IU_ID,ADMIN2, Endemicity)
 
+loa_loa_raw <-
+  read.csv(here('data', 'input', 'espen_platform_loaloa.csv'))
+
+loa_loa_wd <- loa_loa_raw %>%
+  rename(loaloa_status = Endemicity) %>% 
+  filter(Year==2020) %>% 
+  select(IU_ID, loaloa_status)
+rm (loa_loa_raw)
+
 # Filter IU shapefile to only include unknown endemicity
 iu_unknown_endemicity <- iu_shp %>% 
   left_join(ang_espen_data, by='IU_ID') %>% 
   filter(grepl('Unknown', Endemicity)) %>% 
-  select(-Endemicity)
+  select(-Endemicity) %>% 
+  left_join(loa_loa_wd, by='IU_ID')
   
 # Melt commune shapefile to ADM2 level
 iu_combine_melt <- commune_shp %>% 
@@ -40,11 +50,12 @@ iu_commune <- sf::st_join(iu_unknown_endemicity, iu_combine_melt,
                           left = FALSE, largest = TRUE, join = st_within)
 
 # Extract ADM2 name from joined datasets
-adm2_unknown <- iu_commune %>% as_tibble() %>% 
-  pull(ADM2_EN)
+adm2_unknown <- iu_commune %>% 
+  as_tibble() %>% 
+  select(ADM2_EN, loaloa_status)
 
 #Filter commune dataset to only include IUs identified as "Unknown" endemicity
-unknown_commune_shp <- commune_shp %>% filter(ADM2_EN %in% adm2_unknown)
+unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
 
 # Map to check data
 (iu_commune_map <- unknown_commune_shp %>%
@@ -90,46 +101,6 @@ angola_commune_oncho_collapse <- angola_commune_oncho %>%
   geom_sf(aes(fill = oncho_mean_aw)) +
     commune_fill)
 
-# Map weighted mean for Uige province only
-(uige_oncho_map <- angola_commune_oncho_collapse %>%
-  filter(ADM1_EN=="Uíge") %>% 
-  ggplot() +
-  geom_sf(aes(fill = oncho_mean_aw)) +
-  geom_sf_label(aes(label = ADM3_EN)) +
-    theme(legend.position='top') +
-    labs(x="", y="", fill="Environmental suitability") +
-  commune_fill)
-
-uige <- angola_commune_oncho %>% 
-  as_tibble() %>% 
-  select(ADM1_EN, ADM2_EN, ADM3_EN, value) %>% 
-  filter(ADM1_EN=="Uíge") 
-
-uige_boxplot_gph <- ggplot(uige, aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
-  geom_boxplot(outlier.alpha = 0.5) +
-  scale_x_continuous(sec.axis = dup_axis()) +
-  labs(x='Environmental suitability', y='Commune')
-
-uige_oncho_map + uige_boxplot_gph
-
-
-
-map_plot <- function(df){
-  ggplot(data = df) + 
-    geom_boxplot(aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
-    theme_bw() +
-    scale_x_continuous(sec.axis = dup_axis()) +
-    labs(x='Environmental suitability', 
-         y='Commune') +
-    ggtitle(paste(~ADM1_EN)) 
-}
-
-plot_carb(uige)
-
-uige %>%
-  group_split(ADM2_EN) %>%
-  map(plot_carb)
-
 commune_boxwhisker <- angola_commune_oncho %>% 
 split(.$ADM1_EN) %>% 
   imap(~ ggplot(data=.x) +
@@ -140,7 +111,6 @@ split(.$ADM1_EN) %>%
              y='Commune') +
           ggtitle(.y) 
   )
-
 
 commune_map <-  angola_commune_oncho_collapse %>%
   split(.$ADM1_EN) %>%
@@ -153,9 +123,50 @@ commune_map <-  angola_commune_oncho_collapse %>%
       ggtitle(.y)
   )
 
+all_plots <- map2(commune_map,commune_boxwhisker,~{.x + .y})
 
+# Check env suitability by loaloa endemicity
+library(broom)
+library(kableExtra)
 
+angola_commune_oncho %>%
+  ggplot(aes(x = loaloa_status, y = value)) + 
+  #ylim(0,30)
+  geom_boxplot(color = 'black', fill = 'firebrick') +
+  labs(x = "Loa loa", y = "Oncho environmental suitability")
 
+t.test(value ~ loaloa_status, data = angola_commune_oncho, var.equal = TRUE)
+  tidy()
+  kable()
+  
+  
+  
+plot_points <- ggplot() +
+    geom_jitter(aes(x = factor(loaloa_status), y = value),
+                data = angola_commune_oncho,
+                width = 0.1) +
+    xlab("Group") +
+    ylab("Response") +
+    theme_bw()
+
+  model <- lm(value ~ factor(loaloa_status), data = angola_commune_oncho)
+  result <- tidy(model)
+  
+  plot_difference <- ggplot() +
+    geom_pointrange(aes(x = term, y = estimate,
+                        ymin = estimate - 2 * std.error,
+                        ymax = estimate + 2 * std.error),
+                    data = result) +
+    #ylim(-5, 5) +
+    ylab("Value") +
+    xlab("Coefficient") +
+    coord_flip() +
+    theme_bw()
+
+  library(ggpubr)  
+  plot_combined <- ggarrange(plot_points,
+                             plot_difference,
+                             heights = c(2, 1))
 
 ###################################
   
