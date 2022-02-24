@@ -1,0 +1,183 @@
+---
+title: "Commune Analysis"
+author: "Dave Kennedy"
+date: "24/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE, 
+                      cache=TRUE,
+                      dev="png",
+                      dpi = 300,
+                      fig.width = 6,
+                      fig.asp = 0.8,
+                      fig.retina = 2,
+                      out.width = "100%")
+require(pacman)
+library(tidyverse)
+pacman::p_load(raster, sf, exactextractr, here, 
+               leaflet, leaflet.extras, 
+               janitor, patchwork,RColorBrewer,
+               ggsflabel,broom,kableExtra,ggthemes,
+               ggsn,gghighlight,ggsflabel,ggbeeswarm,
+               linelist,tidylog, patchwork)
+
+commune_palette <- colorRampPalette(rev(brewer.pal(5, "Spectral")))
+commune_fill <- scale_fill_stepsn(n.breaks = 5, colours = viridis::viridis(5), limits=c(1, 100))
+```
+
+```{r data-wrangling}
+# Import shapefiles 
+iu_shp <-
+  read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>%
+  filter(ADMIN0 == 'Angola') %>% 
+  select(IU_ID, ADMIN2, geometry)
+
+commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
+  select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
+
+adm1_shp <- commune_shp %>%
+  group_by(ADM1_EN) %>%
+  summarise()
+
+# Import oncho data from ESPEN
+ang_espen_data <-
+  read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
+  filter(Year == 2020) %>% 
+  select(IU_ID,ADMIN2, Endemicity)
+
+loa_loa_raw <-
+  read.csv(here('data', 'input', 'espen_platform_loaloa.csv'))
+
+loa_loa_wd <- loa_loa_raw %>%
+  rename(loaloa_status = Endemicity) %>% 
+  filter(Year==2020) %>% 
+  select(IU_ID, loaloa_status)
+rm (loa_loa_raw)
+
+# Filter IU shapefile to only include unknown endemicity
+iu_unknown_endemicity <- iu_shp %>% 
+  left_join(ang_espen_data, by='IU_ID') %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  select(-Endemicity) %>% 
+  left_join(loa_loa_wd, by='IU_ID')
+  
+# Melt commune shapefile to ADM2 level
+iu_combine_melt <- commune_shp %>% 
+  group_by(ADM2_EN) %>% 
+  dplyr::summarise()
+
+# Join IU & melted ADM2 shapefiles
+iu_commune <- sf::st_join(iu_unknown_endemicity, iu_combine_melt,
+                          left = FALSE, largest = TRUE, join = st_within)
+
+# Extract ADM2 name from joined datasets
+adm2_unknown <- iu_commune %>% 
+  as_tibble() %>% 
+  select(ADM2_EN, loaloa_status)
+
+#Filter commune dataset to only include IUs identified as "Unknown" endemicity
+unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
+```
+
+```{r raster-wrangling}
+# Map to check data
+(iu_commune_map <- unknown_commune_shp %>%
+  ggplot() +
+  geom_sf(aes(fill = ADM3_EN)) +
+  #geom_sf_label(aes(label = ADM3_EN)) +
+  geom_sf(
+    fill = "transparent",
+    color = "black",
+    size = 1.5,
+    data = iu_unknown_endemicity
+  ) +
+  theme(legend.position = "none"))
+
+#Import environmental suitability as raster data
+africa_oncho_rs <-
+  stack(here('data', 'IHME_AFRICA_ONCHO_ENV_SUIT_MEAN_Y2020M08D26.TIF'))
+
+#Crop raster to shapefile of communes within IUs with unknown endemicity
+unknown_iu_oncho_combined <-
+  exact_extract(africa_oncho_rs,
+                unknown_commune_shp,
+                progress = FALSE)  %>%
+  bind_rows(., .id = "id") %>%
+  as_tibble() %>% 
+  mutate(id = as.numeric(id)) %>%
+  #--- group summary ---#
+  filter(!is.na(value))
+
+# Merge raster values with shapefile
+angola_commune_oncho <- unknown_commune_shp %>%
+  mutate(id := seq_len(nrow(.))) %>%
+  left_join(., unknown_iu_oncho_combined, by = "id") 
+
+
+
+```
+
+Check environmental suitability by Loa loa endemicity
+
+```{r loa-loa}
+
+(oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho, aes(x=value, group=loaloa_status, fill=loaloa_status)) +
+    geom_density(adjust=1.5, alpha=.4) +
+    labs(x="Environmental suitability", fill="Loa loa status") +
+    theme_tufte())
+  
+ (oncho_env_loaloa_ttest <-t.test(value ~ loaloa_status, data = angola_commune_oncho, var.equal = TRUE) %>% 
+    tidy())
+  
+```
+
+```{r}
+#Calculate weighted mean
+angola_commune_oncho_collapse <- angola_commune_oncho %>%
+  filter(loaloa_status == "Non-endemic") %>% 
+  group_by(ADM1_EN,ADM2_EN,ADM3_EN) %>%
+  summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
+
+# Map weighted mean by ADM3  
+(angola_commune_oncho_map <- angola_commune_oncho_collapse %>% 
+  ggplot() +
+  geom_sf(aes(fill = oncho_mean_aw)) +
+     geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+    commune_fill)
+
+commune_boxwhisker <- angola_commune_oncho %>% 
+    filter(loaloa_status == "Non-endemic") %>% 
+split(.$ADM1_EN) %>% 
+  imap(~ ggplot(data=.x) +
+        geom_boxplot(aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
+        theme_bw() +
+        scale_x_continuous(sec.axis = dup_axis()) +
+        labs(x='Environmental suitability', 
+             y='Commune') +
+          ggtitle(.y) 
+  )
+
+
+commune_map <-  angola_commune_oncho_collapse %>%
+  split(.$ADM1_EN) %>%
+  imap(~ ggplot(data = .x) +
+      geom_sf(aes(fill = oncho_mean_aw)) +
+      geom_sf_label_repel(aes(label = ADM3_EN)) +
+      theme(legend.position = 'top') +
+      labs(x = "", y = "", fill = "Environmental suitability") +
+      commune_fill +
+      ggtitle(.y)
+  )
+
+all_plots <- map2(commune_map,commune_boxwhisker,~{.x / .y})
+
+```
+
+```{r fig.width=12, fig.height=12}
+all_plots
+```
+

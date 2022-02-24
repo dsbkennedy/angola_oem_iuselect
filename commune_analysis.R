@@ -123,11 +123,10 @@ commune_map <-  angola_commune_oncho_collapse %>%
       ggtitle(.y)
   )
 
-all_plots <- map2(commune_map,commune_boxwhisker,~{.x + .y})
+all_plots <- map2(commune_map,commune_boxwhisker,~{.x / .y})
 
 # Check env suitability by loaloa endemicity
-library(broom)
-library(kableExtra)
+
 
 angola_commune_oncho %>%
   ggplot(aes(x = loaloa_status, y = value)) + 
@@ -135,10 +134,18 @@ angola_commune_oncho %>%
   geom_boxplot(color = 'black', fill = 'firebrick') +
   labs(x = "Loa loa", y = "Oncho environmental suitability")
 
-t.test(value ~ loaloa_status, data = angola_commune_oncho, var.equal = TRUE)
-  tidy()
-  kable()
+
+library(broom)
+library(kableExtra)
+library(ggthemes)
+oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho, aes(x=value, group=loaloa_status, fill=loaloa_status)) +
+    geom_density(adjust=1.5, alpha=.4) +
+    labs(x="Environmental suitability", fill="Loa loa status") +
+    theme_tufte()
   
+ oncho_env_loaloa_ttest <-t.test(value ~ loaloa_status, data = angola_commune_oncho, var.equal = TRUE) %>% 
+    tidy()
+    kable()
   
   
 plot_points <- ggplot() +
