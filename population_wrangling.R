@@ -34,9 +34,83 @@ def_main <- function(datum){datum%>%
   }#apply function to every tibble in stage1
 stage2 <- map(stage1,def_main)
 
-final <- bind_rows(stage2) %>% 
-  select(province=sheet,commune, age_group=character, population=numeric)
+dirty_labels <- c("controlo","estimativ")
+commune_pop_append <- bind_rows(stage2) %>% 
+  select(province=sheet,commune, age_group=character, population=numeric)  %>% 
+  dplyr::filter(!is.na(population))  %>% 
+  clean_data() %>% 
+  filter(!grepl("estimativ", commune, ignore.case=TRUE)) %>% 
+  filter(!grepl("controlo", commune, ignore.case=TRUE)) %>% 
+  filter(age_group!='total') 
+  
+
+province_commune_match <- commune_pop_append %>%
+  filter(province==commune | commune=="chitato" | commune=="bengo" | commune=="caiongo") %>%
+  group_by(province,commune,age_group) %>%
+  slice(which.min(population))
 
 
+province_commune_population <- commune_pop_append %>%
+  filter(!commune %in% c("chitato","bengo","caiongo")) %>% 
+  filter(province!=commune) %>% 
+  bind_rows(province_commune_match) %>% 
+  #mutate(row = row_number()) %>%
+  pivot_wider(id_cols=c('province','commune'), names_from=age_group, values_from=population) 
+  #pivot_wider(names_from=age_group, values_from=population) %>%  
+  #select(-row)
 
 
+#Chitato 
+
+# 
+# 
+# # Compare with raster WorldPop data
+# 
+# world_pop_raster <- raster::stack(here('data', 'input', 'ago_ppp_2020_constrained.tif'))
+# commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
+#   select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
+#   
+# #Crop raster to Angola shapefile
+# angola_pop_combined <-
+#   exact_extract(world_pop_raster,
+#                 commune_shp,
+#                 progress = TRUE)  %>%
+#   bind_rows(., .id = "id") %>%
+#   as_tibble()
+# 
+# #--- weighted mean ---#
+# angola_pop_by_id <- angola_pop_combined %>%
+#   #--- convert from character to numeric  ---#
+#   mutate(id = as.numeric(id))
+#   #--- group summary ---#
+#   group_by(id) %>%
+#   filter(!is.na(value)) %>%
+#   summarise(total_pop = sum(value, na.rm=TRUE))
+# 
+# #--- merge ---#
+# angola_pop <- commune_shp %>%
+#   mutate(id := seq_len(nrow(.))) %>%
+#   left_join(., angola_pop_by_id, by = "id")
+#   dplyr::select(id, total_pop, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID') 
+#   
+#   angola_pop %>% as_tibble() %>% 
+#     summarise(total_pop=sum(total_pop))
+# 
+# 
+# oncho_angola_mean_env_iu <- oncho_angola %>%
+#   as.data.frame() %>%
+#   select('ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID', 'oncho_mean_aw')
+# 
+# remotes::install_github("afrimapr/afrilearndata")
+# 
+# library(terra)
+# 
+# world_pop_raster <- terra::rast(here('data', 'input', 'ago_ppp_2020_constrained.tif'))
+# commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
+#   select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
+# 
+# pop_crop <- terra::extract(commune_shp,world_pop_raster)
+# pop_sv <- terra::vect(commune_shp)
+# pop_by_commune <- terra::extract(world_pop_raster, pop_sv, fun=sum)  
+# 
+# plot(pop_crop)
