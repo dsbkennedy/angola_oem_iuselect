@@ -19,12 +19,16 @@ knitr::opts_chunk$set(echo = FALSE,
                       out.width = "100%")
 require(pacman)
 library(tidyverse)
-pacman::p_load(raster, sf, exactextractr, here, 
+pacman::p_load(raster, sf, exactextractr, here,
+               readxl, tidyxl, unpivotr,
                leaflet, leaflet.extras, 
                janitor, patchwork,RColorBrewer,
                ggsflabel,broom,kableExtra,ggthemes,
                ggsn,gghighlight,ggsflabel,ggbeeswarm,
                linelist,tidylog, patchwork)
+
+
+
 
 commune_palette <- colorRampPalette(rev(brewer.pal(5, "Spectral")))
 commune_fill <- scale_fill_stepsn(n.breaks = 6, colours = viridis::viridis(6), limits=c(1, 100))
@@ -48,7 +52,7 @@ adm1_shp <- commune_shp %>%
 ang_espen_data <-
   read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
   filter(Year == 2020) %>% 
-  select(IU_ID,ADMIN2, Endemicity)
+  select(IU_ID,ADMIN2, Endemicity, population=PopTot)
 
 loa_loa_raw <-
   read.csv(here('data', 'input', 'espen_platform_loaloa.csv'))
@@ -63,7 +67,7 @@ rm (loa_loa_raw)
 iu_unknown_endemicity <- iu_shp %>% 
   left_join(ang_espen_data, by='IU_ID') %>% 
   filter(grepl('Unknown', Endemicity)) %>% 
-  select(-Endemicity) %>% 
+  #select(-Endemicity) %>% 
   left_join(loa_loa_wd, by='IU_ID')
   
 # Melt commune shapefile to ADM2 level
@@ -78,10 +82,11 @@ iu_commune <- sf::st_join(iu_unknown_endemicity, iu_combine_melt,
 # Extract ADM2 name from joined datasets
 adm2_unknown <- iu_commune %>% 
   as_tibble() %>% 
-  select(ADM2_EN, loaloa_status)
+  select(ADM2_EN,Endemicity, loaloa_status)
 
 #Filter commune dataset to only include IUs identified as "Unknown" endemicity
 unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
+
 ```
 
 ```{r raster-wrangling}
@@ -91,17 +96,36 @@ unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
   geom_sf(fill = "transparent", color = "black", size = 1.5) +
   geom_sf_label_repel(aes(label = ADM1_EN)))
 
+(iu_commune_endemicity <- iu_shp %>% 
+  left_join(ang_espen_data, by='IU_ID') %>% 
+  ggplot() +
+  geom_sf(aes(fill = Endemicity),
+    size = 0.05) +
+        geom_sf(fill = "transparent", color = "black", size = 1.5,
+            data=adm1_shp) +
+  # geom_sf(
+  #   fill = "transparent",
+  #   color = "black",
+  #   size = 0.5,
+  #   data = commune_shp
+  # ) +
+        theme(legend.position = "top")) 
+
 (iu_commune_map <- unknown_commune_shp %>%
   ggplot() +
-  geom_sf(aes(fill = ADM3_EN)) +
-  #geom_sf_label(aes(label = ADM3_EN)) +
-  geom_sf(
-    fill = "transparent",
-    color = "black",
-    size = 1.5,
-    data = iu_unknown_endemicity
-  ) +
-   theme(legend.position = "none"))
+  geom_sf(aes(fill = Endemicity)) +
+    geom_sf(fill = "transparent", color = "black", size = 1.5,
+            data=adm1_shp) +
+      theme(legend.position = "top")) 
+
+  # #geom_sf_label(aes(label = ADM3_EN)) +
+  # geom_sf(
+  #   fill = "transparent",
+  #   color = "black",
+  #   size = 0.5,
+  #   data = iu_unknown_endemicity
+  # ) +
+  #  theme(legend.position = "none"))
 
 
 
@@ -129,6 +153,23 @@ angola_commune_oncho <- unknown_commune_shp %>%
 
 ```
 
+```{r}
+#Calculate weighted mean
+angola_commune_oncho_collapse <- angola_commune_oncho %>%
+  group_by(ADM1_EN,ADM2_EN,ADM3_EN) %>%
+  summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
+
+# Map weighted mean by ADM3  
+(angola_commune_oncho_noloaloa_map <- angola_commune_oncho_collapse %>% 
+  ggplot() +
+  geom_sf(aes(fill = oncho_mean_aw)) +
+     geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = adm1_shp) +
+    commune_fill)
+```
+
+
+
 Check environmental suitability by Loa loa endemicity
 
 ```{r loa-loa}
@@ -143,15 +184,15 @@ Check environmental suitability by Loa loa endemicity
   
 ```
 
-```{r country-commune-map}
+```{r country-commune-noloaloa-map}
 #Calculate weighted mean
-angola_commune_oncho_collapse <- angola_commune_oncho %>%
+angola_commune_oncho_noloaloa_collapse <- angola_commune_oncho %>%
   filter(loaloa_status == "Non-endemic") %>% 
   group_by(ADM1_EN,ADM2_EN,ADM3_EN) %>%
   summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
 
 # Map weighted mean by ADM3  
-(angola_commune_oncho_map <- angola_commune_oncho_collapse %>% 
+(angola_commune_oncho_noloaloa_map <- angola_commune_oncho_collapse %>% 
   ggplot() +
   geom_sf(aes(fill = oncho_mean_aw)) +
      geom_sf(fill = "transparent", color = "black", size = 1.5, 
@@ -172,7 +213,7 @@ commune_boxwhisker <- angola_commune_oncho %>%
   )
 
 
-commune_map <-  angola_commune_oncho_collapse %>%
+commune_map <-  angola_commune_oncho_noloaloa_collapse %>%
   mutate(location_name=paste(ADM1_EN,ADM2_EN, sep= "-")) %>% 
   split(.$location_name) %>%
   imap(~ ggplot(data = .x) +
@@ -188,7 +229,80 @@ all_plots <- map2(commune_map,commune_boxwhisker,~{.x / .y})
 
 ```
 
-```{r fig.width=12, fig.height=12}
+
+```{r population_data}
+
+
+#https://medium.com/@samukweku/reshaping-an-excel-table-in-r-71d7d9020124
+
+#sourcefile
+filename <- here('data/input/Estimativas_Comunais_Geral_Final.xlsx')
+#get list of sheet_names
+#which also represents the company names
+sheet_names <- xlsx_sheet_names(filename)#read in file, using the tidyxl package
+#filter for only character and numeric
+#and pick specific rows and columns
+def <- function(sheetname){xlsx_cells(filename,sheetname)%>%
+    filter(data_type %in% c("character","numeric"), 
+           row >=5, 
+           col >=1)}
+#stage1
+#apply function to sheetnames
+#using the purrr library
+stage1 <- map(sheet_names, def)
+
+def_main <- function(datum){datum%>%
+    select(sheet,row,col,data_type,character,numeric)%>%
+    #behead("NNE",years)%>%
+    behead("N",commune)%>%
+    fill(character, .direction = "down") %>% 
+    filter(!is.na(commune))
+  }#apply function to every tibble in stage1
+stage2 <- map(stage1,def_main)
+
+commune_pop_append <- bind_rows(stage2) %>% 
+  select(province=sheet,commune, age_group=character, population=numeric)  %>% 
+  dplyr::filter(!is.na(population))  %>% 
+  clean_data() %>% 
+  filter(!grepl("estimativ", commune, ignore.case=TRUE)) %>% 
+  filter(!grepl("estimativ", age_group, ignore.case=TRUE)) %>%
+  filter(!grepl("controlo", commune, ignore.case=TRUE)) %>% 
+  filter(age_group!='total') %>% 
+  mutate(commune=case_when(commune=="quibocolo" ~ "kibocolu", 
+                           TRUE ~ commune))
+  
+
+province_commune_match <- commune_pop_append %>%
+  filter(province==commune | commune=="chitato" | commune=="bengo" | commune=="caiongo") %>%
+  group_by(province,commune,age_group) %>%
+  slice(which.min(population))
+
+
+province_commune_population <- commune_pop_append %>%
+  filter(!commune %in% c("chitato","bengo","caiongo")) %>% 
+  filter(province!=commune) %>% 
+  bind_rows(province_commune_match) %>% 
+  #mutate(row = row_number()) %>%
+  pivot_wider(id_cols=c('province','commune'), names_from=age_group, values_from=population) 
+  #pivot_wider(names_from=age_group, values_from=population) %>%  
+  #select(-row)
+
+commune_pop_clean <- province_commune_population %>% clean_data()
+
+oncho_pop_shp <- angola_commune_oncho_collapse %>% clean_data %>% 
+  left_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) 
+
+oncho_pop_table <- oncho_pop_shp %>% 
+  as_tibble() %>% 
+  select(-geometry) %>% 
+  clean_names() %>% 
+  mutate(pop_data=ifelse(!is.na(x0_4_anos), "Yes", "No"))
+  
+
+```
+
+
+```{r eval=FALSE, fig.height=12, fig.width=12, include=FALSE}
 all_plots
 ```
 

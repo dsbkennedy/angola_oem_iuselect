@@ -18,6 +18,24 @@ iu_shp <-
 commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
   select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
 
+
+source(here('population_wrangling.r'))
+
+commune_shp_clean <- commune_shp %>% clean_data()
+
+commune_pop_clean <- province_commune_population %>% clean_data()
+
+commune_shp_pop_merge <- commune_shp_clean %>%
+  inner_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) 
+
+
+
+# shp_pop_merge <- commune_shp_clean %>% 
+#   anti_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) %>% 
+#   as.data.frame() %>% 
+#   select(adm1_en, adm3_en)
+
+
 # Import oncho data from ESPEN
 ang_espen_data <-
   read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
@@ -41,7 +59,7 @@ iu_unknown_endemicity <- iu_shp %>%
   left_join(loa_loa_wd, by='IU_ID')
   
 # Melt commune shapefile to ADM2 level
-iu_combine_melt <- commune_shp %>% 
+iu_combine_melt <- commune_shp_pop_merge %>% 
   group_by(ADM2_EN) %>% 
   dplyr::summarise()
 
@@ -55,7 +73,7 @@ adm2_unknown <- iu_commune %>%
   select(ADM2_EN, loaloa_status)
 
 #Filter commune dataset to only include IUs identified as "Unknown" endemicity
-unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
+unknown_commune_shp <- commune_shp_pop_merge %>% right_join(adm2_unknown,by='ADM2_EN')
 
 # Map to check data
 (iu_commune_map <- unknown_commune_shp %>%
@@ -229,13 +247,13 @@ ggplot(uige, aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) +
 aes(x = reorder(the_factor, desc(the_factor)), ...)
 
 ######################################
-st_crs(iu_unknown_endemicity) == st_crs(commune_shp)
+st_crs(iu_unknown_endemicity) == st_crs(commune_shp_pop_merge)
 # Join shapefiles
 
 huambo_iu_shp <- iu_unknown_endemicity %>% filter(ADMIN2=="Huambo") %>% clean_data()
-huambo_commune_shp <- commune_shp %>% filter(ADM2_EN=="Huambo") %>% clean_data()
+huambo_commune_shp <- commune_shp_pop_merge %>% filter(ADM2_EN=="Huambo") %>% clean_data()
 
-cal_grid_neat <- st_intersection(iu_unknown_endemicity, commune_shp)
+cal_grid_neat <- st_intersection(iu_unknown_endemicity, commune_shp_pop_merge)
 
 overlapping_pol_names <- cal_grid_neat %>% 
   as_tibble() %>% 
@@ -244,7 +262,7 @@ overlapping_pol_names <- cal_grid_neat %>%
   pull(key)
 
 
-overlapping_commune <- commune_shp %>% 
+overlapping_commune <- commune_shp_pop_merge %>% 
   as_tibble() %>% 
   mutate(key=paste0(ADM1_EN,ADM1_EN,ADM3_EN)) %>% 
   clean_data() %>% 
@@ -260,7 +278,7 @@ iu_commune_intersection <- st_intersection(bengo_commune_shp, bengo_iu_shp) %>% 
 
 inter <- st_intersection(poly) %>% filter(n.overlaps < 2)
 
-commune_shp$indicator <- st_within(commune_shp, iu_unknown_endemicity) %>% lengths > 0
+commune_shp_pop_merge$indicator <- st_within(commune_shp_pop_merge, iu_unknown_endemicity) %>% lengths > 0
 
 iu_commune <- sf::st_join(iu_unknown_endemicity, iu_combine_melt,
                           left = FALSE, largest = TRUE, join = st_within)
@@ -283,11 +301,11 @@ iu_commune_map <- iu_combine_melt %>%
 
 
 y <- iu_unknown_endemicity %>% 
-  filter(st_filter(commune_shp, .predicate = st_within))
+  filter(st_filter(commune_shp_pop_merge, .predicate = st_within))
 
-filtered = st_crop(commune_shp, iu_unknown_endemicity) %>% filter(indicator==T)
+filtered = st_crop(commune_shp_pop_merge, iu_unknown_endemicity) %>% filter(indicator==T)
 
-joined = st_join(commune_shp, iu_unknown_endemicity, join = st_intersects) %>% 
+joined = st_join(commune_shp_pop_merge, iu_unknown_endemicity, join = st_intersects) %>% 
   filter(!is.na(IU_ID)) %>% as_tibble()
 
 st_filter(balt_metro, .predicate = st_within)
@@ -313,7 +331,7 @@ unknown_iu <-
   filter(grepl('Unknown', Endemicity)) %>% 
   pull(IU_ID)
 
-commune_unknown_endemicity <- commune_shp %>% 
+commune_unknown_endemicity <- commune_shp_pop_merge %>% 
 
 cachiungo_adm3_oncho_crop <- raster::crop(africa_oncho_raster, cachiungo_adm3_shp)
 
