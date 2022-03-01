@@ -6,8 +6,8 @@ pacman::p_load(raster, sf, exactextractr, here,
                ggsn,gghighlight,ggsflabel,ggbeeswarm,
                linelist,tidylog, patchwork)
 
-commune_palette <- colorRampPalette(rev(brewer.pal(5, "Spectral")))
-commune_fill <- scale_fill_stepsn(n.breaks = 5, colours = viridis::viridis(5), limits=c(1, 100))
+commune_palette <- colorRampPalette(rev(brewer.pal(6, "Spectral")))
+commune_fill <- scale_fill_stepsn(n.breaks = 6, colours = viridis::viridis(6), limits=c(1, 100))
 
 # Import shapefiles 
 iu_shp <-
@@ -16,17 +16,29 @@ iu_shp <-
   select(IU_ID, geometry)
 
 commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
-  select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
+  select(ADM1_EN, ADM1_PCODE, ADM2_EN,ADM2_PCODE, ADM3_EN,ADM3_PCODE, geometry) %>% 
+    clean_data()
+
+adm1_shp <- commune_shp %>%
+  group_by(adm1_en) %>%
+  summarise()
 
 
-source(here('population_wrangling.r'))
+source(here('admin_db.R'))
 
-commune_shp_clean <- commune_shp %>% clean_data()
+commune_shp_linked <- commune_shp %>% 
+  left_join(linking_db %>% 
+              select('adm1_pcode', 'adm2_pcode', 'adm3_pcode','iu_id'),
+            by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode'))
 
-commune_pop_clean <- province_commune_population %>% clean_data()
-
-commune_shp_pop_merge <- commune_shp_clean %>%
-  inner_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) 
+# source(here('population_wrangling.r'))
+# 
+# commune_shp_clean <- commune_shp %>% clean_data()
+# 
+# commune_pop_clean <- province_commune_population %>% clean_data()
+# 
+# commune_shp_pop_merge <- commune_shp_clean %>%
+#   inner_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) 
 
 
 
@@ -52,41 +64,56 @@ loa_loa_wd <- loa_loa_raw %>%
 rm (loa_loa_raw)
 
 # Filter IU shapefile to only include unknown endemicity
-iu_unknown_endemicity <- iu_shp %>% 
-  left_join(ang_espen_data, by='IU_ID') %>% 
+# iu_unknown_endemicity <- iu_shp %>% 
+#   left_join(ang_espen_data, by='IU_ID') %>% 
+#   filter(grepl('Unknown', Endemicity)) %>% 
+#   select(-Endemicity) %>% 
+#   left_join(loa_loa_wd, by='IU_ID')
+
+commune_shp_unknown <- commune_shp_linked %>% 
+  left_join(ang_espen_data, by=c('iu_id' = 'IU_ID')) %>% 
   filter(grepl('Unknown', Endemicity)) %>% 
   select(-Endemicity) %>% 
-  left_join(loa_loa_wd, by='IU_ID')
+  left_join(loa_loa_wd, by=c('iu_id' = 'IU_ID')) %>% 
+  mutate(oncho_status="Unknown")
+
   
 # Melt commune shapefile to ADM2 level
-iu_combine_melt <- commune_shp_pop_merge %>% 
-  group_by(ADM2_EN) %>% 
-  dplyr::summarise()
+# iu_combine_melt <- commune_shp_pop_merge %>% 
+#   group_by(ADM2_EN) %>% 
+#   dplyr::summarise()
+# 
+# # Join IU & melted ADM2 shapefiles
+# iu_commune <- sf::st_join(iu_unknown_endemicity, iu_combine_melt,
+#                           left = FALSE, largest = TRUE, join = st_within)
+# 
+# # Extract ADM2 name from joined datasets
+# adm2_unknown <- iu_commune %>% 
+#   as_tibble() %>% 
+#   select(ADM2_EN, loaloa_status)
+# 
+# #Filter commune dataset to only include IUs identified as "Unknown" endemicity
+# unknown_commune_shp <- commune_shp_pop_merge %>% right_join(adm2_unknown,by='ADM2_EN')
+# 
+# # Map to check data
+# (iu_commune_map <- unknown_commune_shp %>%
+#   ggplot() +
+#   geom_sf(aes(fill = ADM3_EN)) +
+#   #geom_sf_label(aes(label = ADM3_EN)) +
+#   geom_sf(
+#     fill = "transparent",
+#     color = "black",
+#     size = 1.5,
+#     data = iu_unknown_endemicity
+#   ) +
+#   theme(legend.position = "none"))
 
-# Join IU & melted ADM2 shapefiles
-iu_commune <- sf::st_join(iu_unknown_endemicity, iu_combine_melt,
-                          left = FALSE, largest = TRUE, join = st_within)
-
-# Extract ADM2 name from joined datasets
-adm2_unknown <- iu_commune %>% 
-  as_tibble() %>% 
-  select(ADM2_EN, loaloa_status)
-
-#Filter commune dataset to only include IUs identified as "Unknown" endemicity
-unknown_commune_shp <- commune_shp_pop_merge %>% right_join(adm2_unknown,by='ADM2_EN')
-
-# Map to check data
-(iu_commune_map <- unknown_commune_shp %>%
+iu_commune_map <- commune_shp_unknown %>%
   ggplot() +
-  geom_sf(aes(fill = ADM3_EN)) +
-  #geom_sf_label(aes(label = ADM3_EN)) +
-  geom_sf(
-    fill = "transparent",
-    color = "black",
-    size = 1.5,
-    data = iu_unknown_endemicity
-  ) +
-  theme(legend.position = "none"))
+  geom_sf(aes(fill = oncho_status)) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
+          data=adm1_shp) +
+  theme(legend.position = "none")
 
 #Import environmental suitability as raster data
 africa_oncho_rs <-
@@ -95,7 +122,7 @@ africa_oncho_rs <-
 #Crop raster to shapefile of communes within IUs with unknown endemicity
 unknown_iu_oncho_combined <-
   exact_extract(africa_oncho_rs,
-                unknown_commune_shp,
+                commune_shp_unknown,
                 progress = FALSE)  %>%
   bind_rows(., .id = "id") %>%
   as_tibble() %>% 
@@ -104,13 +131,13 @@ unknown_iu_oncho_combined <-
   filter(!is.na(value))
 
 # Merge raster values with shapefile
-angola_commune_oncho <- unknown_commune_shp %>%
+angola_commune_oncho <- commune_shp_unknown %>%
   mutate(id := seq_len(nrow(.))) %>%
   left_join(., unknown_iu_oncho_combined, by = "id") 
 
 #Calculate weighted mean
 angola_commune_oncho_collapse <- angola_commune_oncho %>%
-  group_by(ADM1_EN,ADM2_EN,ADM3_EN) %>%
+  group_by(adm1_en,adm2_en,adm3_en) %>%
   summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
 
 # Map weighted mean by ADM3  

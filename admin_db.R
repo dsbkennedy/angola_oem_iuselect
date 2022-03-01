@@ -1,5 +1,8 @@
 # ADMIN CODES
-
+library(here)
+library(sf)
+library(tidyverse)
+library(linelist)
 
 commune_admin_codes <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>%  
   as_tibble() %>% 
@@ -47,11 +50,7 @@ commune_admin_codes <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_ga
                             adm2_en=='mucari' ~ 'caculama',
                             adm2_en=='cuvango_kuvango' ~ 'kuvango',
                             adm2_en=='quissama_muxima_quicama' ~ 'kissama',
-                            #adm2_en=='quissama_muxima_quicama' ~ 'talatona',
-                            #adm2_en=='luanda' ~ 'kilamba_kiaxi',
-                            #adm2_en=='chitato_lovua' ~ 'lovua',
                             TRUE ~ adm2_en))
-
 
 iu_admin_codes <-
   read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>%
@@ -62,66 +61,7 @@ iu_admin_codes <-
   mutate(admin1= case_when(admin1=='kwanza_sul' ~ "cuanza_sul", 
                             TRUE ~admin1))
 
-
-master_list <- iu_admin_codes %>% distinct(admin1, admin2) %>% mutate(iu_data=1) %>%
-  full_join(commune_admin_codes %>% distinct(adm1_en, adm2_en) %>% mutate(commune_data=1),
-            by=(c('admin1' = 'adm1_en', 'admin2'='adm2_en'))) %>%
-  arrange(admin1, admin2)
-
-
-  # mutate(admin1= case_when(admin1=='kwanza_sul' ~ "cuanza_sul", 
-  #                           TRUE ~admin1)) %>% 
-  # mutate(admin2 = case_when(admin2=='amboim' ~ 'amboim_gabela',
-  #                           admin2=='belas' ~ 'belas_samba',
-  #                           admin2=='cacongo' ~ 'cacongo_landana',
-  #                           admin2=='cangola' ~ 'cangola_alto_cauale',
-  #                           admin2=='cela' ~ 'cela_waku_kungo',
-  #                           admin2=='chitato' ~ 'chitato_lovua',
-  #                           admin2=='dembos' ~ 'dembos_quibaxe',
-  #                           admin2=='ekunha' ~ 'ecunha_ekunha',
-  #                           admin2=='tombua' ~ 'tombwa_porto_alexandre',
-  #                           admin2=='tchindjenje' ~ 'tchinjenje',
-  #                           admin2=='sumbe' ~ 'sumbe_ngangula',
-  #                           admin2=='seles' ~ 'seles_uku_seles',
-  #                           admin2=='quipungo' ~ 'quipungo_tchipungo',
-  #                           admin2=='mbanza_congo' ~ 'mbanza_kongo',
-  #                           admin2=='londuimbale' ~ 'londuimbali',
-  #                           admin2=='libolo' ~ 'libolo_calulo',
-  #                           admin2=='kiuaba_n_zoji_cuaba_nzogo' ~ 'kiwaba_n_zogi',
-  #                           admin2=='gambos' ~ 'gambos_ex_chiange',
-  #                           admin2=='kuito' ~ 'cuito_kuito',
-  #                           admin2=='nharea' ~ 'n_harea',
-  #                           admin2=='gambos' ~ 'gambos_ex_chiange',
-  #                           admin2=='kambambe' ~ 'cambambe_kambambe',
-  #                           admin2=='kazengo' ~ 'cazengo',
-  #                           admin2=='kiculungo' ~ 'quiculungo',
-  #                           admin2=='lukala' ~ 'lucala',
-  #                           admin2=='kibala' ~ 'quibala',
-  #                           admin2=='kilenda' ~ 'quilenda',
-  #                           admin2=='nzeto' ~ 'n_zeto',
-  #                           admin2=='mbanza_kongo' ~ 'mbanza_congo',
-  #                           admin2=='lumege' ~ 'cameia_lumeje',
-  #                           admin2=='moxico' ~ 'luena',
-  #                           admin2=='lumbala_nguimbo' ~ 'bundas_lumbala_nguimbo',
-  #                           admin2=='kalandula' ~ 'calandula',
-  #                           admin2=='kiwaba_n_zogi' ~ 'kiuaba_n_zoji_cuaba_nzogo',
-  #                           admin2=='kunda_ia_baze' ~ 'cunda_dia_baze',
-  #                           admin2=='kuvango' ~ 'cuvango_kuvango',
-  #                           admin2=='kachiungo' ~ 'catchiungo',
-  #                           admin2=='londuimbali' ~ 'londuimbale',
-  #                           admin2=='khela' ~ 'quela',
-  #                           admin2=='caculama' ~ 'mucari',
-  #                           admin2=='kuvango' ~ 'cuvango_kuvango',
-  #                           admin2=='kissama' ~ 'quissama_muxima_quicama',
-  #                           admin2=='talatona' ~ 'quissama_muxima_quicama',
-  #                           admin2=='kilamba_kiaxi' ~ 'luanda',
-  #                           admin2=='lovua' ~ 'chitato_lovua',
-  #                           TRUE ~ admin2))
-
 linking_db <- commune_admin_codes %>% 
   right_join(iu_admin_codes, by=(c('adm1_en' = 'admin1', 'adm2_en' = 'admin2')))
 
-# master_list <- commune_admin_codes %>% distinct(adm1_en,adm2_en) %>% mutate(commune_data=1) %>% 
-#   right_join(iu_admin_codes %>% distinct(admin1,admin2) %>% mutate(iu_data=1), 
-#             by=(c('adm1_en' = 'admin1', 'adm2_en' = 'admin2'))) %>% 
-#   arrange(adm1_en,adm2_en)
+rm(commune_admin_codes, iu_admin_codes)

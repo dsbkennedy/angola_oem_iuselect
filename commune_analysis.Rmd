@@ -44,16 +44,24 @@ iu_shp <-
 # 164 implementation units
 
 commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
-    #filter(ADM1_EN=="Cuanza Norte") %>% 
-  select(ADM1_EN, ADM2_EN, ADM3_EN, geometry) 
+  select(ADM1_EN, ADM1_PCODE, ADM2_EN,ADM2_PCODE, ADM3_EN,ADM3_PCODE, geometry) %>% 
+    clean_data()
 
 # 539 communes 
 
 adm1_shp <- commune_shp %>%
-  group_by(ADM1_EN) %>%
+  group_by(adm1_en) %>%
   summarise()
 
 # 18 provinces 
+
+source(here('admin_db.R'))
+
+commune_shp_linked <- commune_shp %>% 
+  left_join(linking_db %>% 
+              select('adm1_pcode', 'adm2_pcode', 'adm3_pcode','iu_id'),
+            by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode'))
+
 
 # Import oncho data from ESPEN
 ang_espen_data <-
@@ -74,8 +82,6 @@ loa_loa_wd <-
 iu_unknown_endemicity <- iu_shp %>% 
   left_join(ang_espen_data, by='IU_ID') %>% 
   filter(grepl('Unknown', Endemicity)) %>% 
-  #filter(ADMIN1=="Cuanza Norte") %>% 
-  #select(-Endemicity) %>% 
   left_join(loa_loa_wd, by='IU_ID') %>% 
   rename(ADMIN1_espen=ADMIN1,
          ADMIN2_espen=ADMIN2)
@@ -84,7 +90,7 @@ iu_unknown_endemicity <- iu_shp %>%
 
 # Melt commune shapefile to ADM2 level
 iu_combine_melt <- commune_shp %>% 
-  group_by(ADMIN1_com=ADM1_EN,ADMIN2_com=ADM2_EN) %>% 
+  group_by(adm1_en,adm2_en) %>% 
   dplyr::summarise() 
 
 # 161 IUs
@@ -102,9 +108,9 @@ iu_df <- iu_commune %>% as_tibble() %>% select(-geometry) %>%
 adm2_unknown <- iu_commune %>% 
   #pull(ADM2_EN)
   as_tibble() %>% 
-  select(ADMIN1_com,ADMIN2_com,Endemicity, loaloa_status) %>% 
-  group_by(ADMIN1_com,ADMIN2_com) %>% 
-  filter(duplicated(ADMIN1_com,ADMIN2_com)|n()==1)
+  select(adm1_en,adm2_en,Endemicity, loaloa_status) 
+  # group_by(ADMIN1_com,ADMIN2_com) %>% 
+  # filter(duplicated(ADMIN1_com,ADMIN2_com)|n()==1)
 
 #112 IUs
 
@@ -114,14 +120,20 @@ unknown_commune_shp <- commune_shp %>%
   #left_join(adm2_unknown, by='join_key') %>% 
   #filter(!is.na(Endemicity))
   #filter(ADM2_EN %in% adm2_unknown)
-  right_join(adm2_unknown,by=c('ADM1_EN'='ADMIN1_com', 'ADM2_EN'='ADMIN2_com'))
+  right_join(adm2_unknown,by=c('adm1_en','adm2_en'))
 
-unknown_commune_df <- unknown_commune_shp %>% as_tibble() %>% select(-geometry)
+ # right_join(adm2_unknown,by=c('ADM1_EN'='ADMIN1_com', 'ADM2_EN'='ADMIN2_com'))
 
-x <- commune_shp %>% as_tibble() %>% 
-  count(ADM1_EN, ADM2_EN, ADM3_EN)
+unknown_commune_df <- unknown_commune_shp %>% as_tibble() %>% select(adm1_en, adm2_en, adm3_en) %>% mutate(spatial_join=1)
+
+commune_shp_unknown <- commune_shp_linked %>% 
+  left_join(ang_espen_data, by=c('iu_id' = 'IU_ID')) %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  select(-Endemicity) %>% 
+  left_join(loa_loa_wd, by=c('iu_id' = 'IU_ID')) %>% 
+  mutate(oncho_status="Unknown")
   
-  
+
 # Ilha do Cabo
 # Danje ia Menha
 
@@ -165,6 +177,15 @@ iu_commune_map <- unknown_commune_shp %>%
       theme(legend.position = "top")
 
 iu_commune_map
+
+iu_commune_map_upd <- commune_shp_unknown %>%
+  ggplot() +
+  geom_sf(aes(fill = oncho_status)) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
+          data=adm1_shp) +
+  theme(legend.position = "none")
+
+iu_commune_map_upd
 
 iu_commune_df <- iu_commune_map$data %>% as_tibble() %>% select(-geometry)
   # #geom_sf_label(aes(label = ADM3_EN)) +
