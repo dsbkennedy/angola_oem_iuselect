@@ -39,64 +39,108 @@ commune_fill <- scale_fill_stepsn(n.breaks = 6, colours = viridis::viridis(6), l
 iu_shp <-
   read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>%
   filter(ADMIN0 == 'Angola') %>% 
-  select(IU_ID, ADMIN2, geometry)
+  select(IU_ID,ADMIN1, ADMIN2, geometry)
+
+# 164 implementation units
 
 commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
-  select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
+    #filter(ADM1_EN=="Cuanza Norte") %>% 
+  select(ADM1_EN, ADM2_EN, ADM3_EN, geometry) 
+
+# 539 communes 
 
 adm1_shp <- commune_shp %>%
   group_by(ADM1_EN) %>%
   summarise()
 
+# 18 provinces 
+
 # Import oncho data from ESPEN
 ang_espen_data <-
   read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
   filter(Year == 2020) %>% 
-  select(IU_ID,ADMIN2, Endemicity, population=PopTot)
+  select(IU_ID, Endemicity, population=PopTot)
 
-loa_loa_raw <-
-  read.csv(here('data', 'input', 'espen_platform_loaloa.csv'))
+# 164 IUs
 
-loa_loa_wd <- loa_loa_raw %>%
+loa_loa_wd <-
+  read.csv(here('data', 'input', 'espen_platform_loaloa.csv')) %>% 
   rename(loaloa_status = Endemicity) %>% 
   filter(Year==2020) %>% 
   select(IU_ID, loaloa_status)
-rm (loa_loa_raw)
+# 164 IUs
 
 # Filter IU shapefile to only include unknown endemicity
 iu_unknown_endemicity <- iu_shp %>% 
   left_join(ang_espen_data, by='IU_ID') %>% 
   filter(grepl('Unknown', Endemicity)) %>% 
+  #filter(ADMIN1=="Cuanza Norte") %>% 
   #select(-Endemicity) %>% 
-  left_join(loa_loa_wd, by='IU_ID')
+  left_join(loa_loa_wd, by='IU_ID') %>% 
+  rename(ADMIN1_espen=ADMIN1,
+         ADMIN2_espen=ADMIN2)
   
+# 116 IUs
+
 # Melt commune shapefile to ADM2 level
 iu_combine_melt <- commune_shp %>% 
-  group_by(ADM2_EN) %>% 
-  dplyr::summarise()
+  group_by(ADMIN1_com=ADM1_EN,ADMIN2_com=ADM2_EN) %>% 
+  dplyr::summarise() 
+
+# 161 IUs
 
 # Join IU & melted ADM2 shapefiles
-iu_commune <- sf::st_join(iu_unknown_endemicity, iu_combine_melt,
-                          left = FALSE, largest = TRUE, join = st_within)
+iu_commune <- sf::st_join(iu_unknown_endemicity,iu_combine_melt, 
+                          largest = TRUE, join = st_within, left=FALSE)
+# 116 IUs
+
+iu_df <- iu_commune %>% as_tibble() %>% select(-geometry) %>% 
+  filter(!is.na(Endemicity))
+
 
 # Extract ADM2 name from joined datasets
 adm2_unknown <- iu_commune %>% 
+  #pull(ADM2_EN)
   as_tibble() %>% 
-  select(ADM2_EN,Endemicity, loaloa_status)
+  select(ADMIN1_com,ADMIN2_com,Endemicity, loaloa_status) %>% 
+  group_by(ADMIN1_com,ADMIN2_com) %>% 
+  filter(duplicated(ADMIN1_com,ADMIN2_com)|n()==1)
+
+#112 IUs
 
 #Filter commune dataset to only include IUs identified as "Unknown" endemicity
-unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
+unknown_commune_shp <- commune_shp %>% 
+  #mutate(join_key=paste0(ADM1_EN,ADM2_EN, sep="-")) %>% 
+  #left_join(adm2_unknown, by='join_key') %>% 
+  #filter(!is.na(Endemicity))
+  #filter(ADM2_EN %in% adm2_unknown)
+  right_join(adm2_unknown,by=c('ADM1_EN'='ADMIN1_com', 'ADM2_EN'='ADMIN2_com'))
+
+unknown_commune_df <- unknown_commune_shp %>% as_tibble() %>% select(-geometry)
+
+x <- commune_shp %>% as_tibble() %>% 
+  count(ADM1_EN, ADM2_EN, ADM3_EN)
+  
+  
+# Ilha do Cabo
+# Danje ia Menha
+
+
+# 428 communes
+# 112 IUs
 
 ```
 
-```{r raster-wrangling}
+```{r map-angola-commune}
 # Map to check data
-(iu_commune_map_labels <- adm1_shp %>%
+iu_commune_map_labels <- adm1_shp %>%
   ggplot() +
   geom_sf(fill = "transparent", color = "black", size = 1.5) +
-  geom_sf_label_repel(aes(label = ADM1_EN)))
+  geom_sf_label_repel(aes(label = ADM1_EN))
 
-(iu_commune_endemicity <- iu_shp %>% 
+iu_commune_map_labels
+
+iu_commune_endemicity <- iu_shp %>% 
   left_join(ang_espen_data, by='IU_ID') %>% 
   ggplot() +
   geom_sf(aes(fill = Endemicity),
@@ -109,15 +153,19 @@ unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
   #   size = 0.5,
   #   data = commune_shp
   # ) +
-        theme(legend.position = "top")) 
+        theme(legend.position = "top")
+iu_commune_endemicity
 
-(iu_commune_map <- unknown_commune_shp %>%
+iu_commune_map <- unknown_commune_shp %>%
   ggplot() +
   geom_sf(aes(fill = Endemicity)) +
     geom_sf(fill = "transparent", color = "black", size = 1.5,
             data=adm1_shp) +
-      theme(legend.position = "top")) 
+      theme(legend.position = "top")
 
+iu_commune_map
+
+iu_commune_df <- iu_commune_map$data %>% as_tibble() %>% select(-geometry)
   # #geom_sf_label(aes(label = ADM3_EN)) +
   # geom_sf(
   #   fill = "transparent",
@@ -126,8 +174,9 @@ unknown_commune_shp <- commune_shp %>% right_join(adm2_unknown,by='ADM2_EN')
   #   data = iu_unknown_endemicity
   # ) +
   #  theme(legend.position = "none"))
+```
 
-
+```{r raster-wrangling}
 
 #Import environmental suitability as raster data
 africa_oncho_rs <-
@@ -150,7 +199,6 @@ angola_commune_oncho <- unknown_commune_shp %>%
   left_join(., unknown_iu_oncho_combined, by = "id") 
 
 
-
 ```
 
 ```{r}
@@ -160,12 +208,14 @@ angola_commune_oncho_collapse <- angola_commune_oncho %>%
   summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
 
 # Map weighted mean by ADM3  
-(angola_commune_oncho_noloaloa_map <- angola_commune_oncho_collapse %>% 
+angola_commune_oncho_noloaloa_map <- angola_commune_oncho_collapse %>% 
   ggplot() +
   geom_sf(aes(fill = oncho_mean_aw)) +
-     geom_sf(fill = "transparent", color = "black", size = 1.5, 
+     geom_sf(fill = "transparent", color = "black", size = 1.5,
           data = adm1_shp) +
-    commune_fill)
+  commune_fill
+
+angola_commune_oncho_noloaloa_map
 ```
 
 
@@ -174,11 +224,14 @@ Check environmental suitability by Loa loa endemicity
 
 ```{r loa-loa}
 
-(oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho, aes(x=value, group=loaloa_status, fill=loaloa_status)) +
+oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho, 
+                                    aes(x=value, group=loaloa_status, fill=loaloa_status)) +
     geom_density(adjust=1.5, alpha=.4) +
     labs(x="Environmental suitability", fill="Loa loa status") +
-    theme_tufte())
+    theme_tufte()
   
+oncho_env_loaloa_compare
+
  (oncho_env_loaloa_ttest <-t.test(value ~ loaloa_status, data = angola_commune_oncho, var.equal = TRUE) %>% 
     tidy())
   
@@ -231,8 +284,6 @@ all_plots <- map2(commune_map,commune_boxwhisker,~{.x / .y})
 
 
 ```{r population_data}
-
-
 #https://medium.com/@samukweku/reshaping-an-excel-table-in-r-71d7d9020124
 
 #sourcefile
@@ -271,12 +322,10 @@ commune_pop_append <- bind_rows(stage2) %>%
   mutate(commune=case_when(commune=="quibocolo" ~ "kibocolu", 
                            TRUE ~ commune))
   
-
 province_commune_match <- commune_pop_append %>%
   filter(province==commune | commune=="chitato" | commune=="bengo" | commune=="caiongo") %>%
   group_by(province,commune,age_group) %>%
   slice(which.min(population))
-
 
 province_commune_population <- commune_pop_append %>%
   filter(!commune %in% c("chitato","bengo","caiongo")) %>% 

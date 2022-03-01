@@ -59,6 +59,7 @@ province_commune_population <- commune_pop_append %>%
   #pivot_wider(names_from=age_group, values_from=population) %>%  
   #select(-row)
 
+province_commune_population %>% filter(commune=="Huambo")
 
 #Chitato 
 
@@ -66,32 +67,52 @@ province_commune_population <- commune_pop_append %>%
 # 
 # # Compare with raster WorldPop data
 # 
-# world_pop_raster <- raster::stack(here('data', 'input', 'ago_ppp_2020_constrained.tif'))
-# commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
-#   select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
+world_pop_raster <- raster::stack(here('data', 'input', 'ago_ppp_2020_1km_Aggregated_UNadj.tif'))
+commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>%
+  select(ADM1_EN, ADM2_EN, ADM3_EN, geometry) %>% 
+  filter(ADM3_EN=="Huambo")
 #   
-# #Crop raster to Angola shapefile
-# angola_pop_combined <-
-#   exact_extract(world_pop_raster,
-#                 commune_shp,
-#                 progress = TRUE)  %>%
-#   bind_rows(., .id = "id") %>%
-#   as_tibble()
-# 
-# #--- weighted mean ---#
-# angola_pop_by_id <- angola_pop_combined %>%
-#   #--- convert from character to numeric  ---#
-#   mutate(id = as.numeric(id))
-#   #--- group summary ---#
-#   group_by(id) %>%
-#   filter(!is.na(value)) %>%
-#   summarise(total_pop = sum(value, na.rm=TRUE))
-# 
-# #--- merge ---#
-# angola_pop <- commune_shp %>%
-#   mutate(id := seq_len(nrow(.))) %>%
-#   left_join(., angola_pop_by_id, by = "id")
-#   dplyr::select(id, total_pop, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID') 
+#Crop raster to Huambo shapefile
+angola_pop_combined <-
+  exact_extract(world_pop_raster,
+                commune_shp,
+                progress = TRUE)  %>%
+  bind_rows(., .id = "id") %>%
+  as_tibble()
+
+huambo_pop <- raster::mask(world_pop_raster, commune_shp)
+huambo_pop <- crop(world_pop_raster, commune_shp)
+
+huambo_pop <- stack(raster::disaggregate(huambo_pop, fact = 5, method = "bilinear"))
+
+plot(huambo_pop)
+
+huambo_pop_sum <- raster::extract(x = world_pop_raster, 
+                                      y = commune_shp,
+                                      fun=sum, 
+                                      df=TRUE)
+
+#--- weighted mean ---#
+angola_pop_by_id <- angola_pop_combined %>%
+  #--- convert from character to numeric  ---#
+  mutate(id = as.numeric(id)) %>% 
+  #--- group summary ---#
+  group_by(id) %>%
+  filter(!is.na(value)) %>%
+  summarise(total_pop = sum(value, na.rm=TRUE))
+
+#--- merge ---#
+angola_pop <- commune_shp %>%
+  mutate(id := seq_len(nrow(.))) %>%
+  left_join(., angola_pop_by_id, by = "id")
+  dplyr::select(id, total_pop, 'ADMIN1ID', 'ADMIN2ID', 'ADMIN3ID', 'IU_ID')
+  
+huambo_commune_population <- province_commune_population %>% 
+  filter(commune=="huambo") %>% 
+  select(-contains('estima')) %>% 
+  pivot_longer(-c('province', 'commune'))
+
+huambo_commune_population %>% summarise(total_pop=sum(value))
 #   
 #   angola_pop %>% as_tibble() %>% 
 #     summarise(total_pop=sum(total_pop))
@@ -105,12 +126,13 @@ province_commune_population <- commune_pop_append %>%
 # 
 # library(terra)
 # 
-# world_pop_raster <- terra::rast(here('data', 'input', 'ago_ppp_2020_constrained.tif'))
-# commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
-#   select(ADM1_EN, ADM2_EN, ADM3_EN, geometry)
-# 
-# pop_crop <- terra::extract(commune_shp,world_pop_raster)
-# pop_sv <- terra::vect(commune_shp)
-# pop_by_commune <- terra::extract(world_pop_raster, pop_sv, fun=sum)  
+world_pop_raster <- terra::rast(here('data', 'input', 'ago_ppp_2020_constrained.tif'))
+commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>%
+  select(ADM1_EN, ADM2_EN, ADM3_EN, geometry) %>% 
+  filter(ADM2_EN=="Huambo")
+
+pop_crop <- terra::extract(commune_shp,world_pop_raster)
+pop_sv <- terra::vect(commune_shp)
+pop_by_commune <- terra::extract(world_pop_raster, pop_sv, fun=sum)
 # 
 # plot(pop_crop)
