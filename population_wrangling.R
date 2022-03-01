@@ -68,9 +68,14 @@ province_commune_population %>% filter(commune=="Huambo")
 # # Compare with raster WorldPop data
 # 
 world_pop_raster <- raster::stack(here('data', 'input', 'ago_ppp_2020_1km_Aggregated_UNadj.tif'))
-commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>%
+commune_shp <- sf::read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp'))
   select(ADM1_EN, ADM2_EN, ADM3_EN, geometry) %>% 
   filter(ADM3_EN=="Huambo")
+  
+ago_admin_codes <- commune_shp %>% 
+  as_tibble() %>% 
+  select(ADM1_EN, ADM1_PCODE, ADM2_EN, ADM2_PCODE,ADM3_EN, ADM3_PCODE) %>% 
+  clean_data()
 #   
 #Crop raster to Huambo shapefile
 angola_pop_combined <-

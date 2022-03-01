@@ -154,6 +154,7 @@ iu_commune_endemicity <- iu_shp %>%
   #   data = commune_shp
   # ) +
         theme(legend.position = "top")
+
 iu_commune_endemicity
 
 iu_commune_map <- unknown_commune_shp %>%
