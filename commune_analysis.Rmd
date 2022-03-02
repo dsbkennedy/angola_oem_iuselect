@@ -7,14 +7,15 @@ output:
   keep_md: yes
 ---
 
-```{r setup, include=FALSE}
+```{r setup}
 knitr::opts_chunk$set(echo = FALSE, 
                       warning = FALSE, 
                       cache=TRUE,
                       include=FALSE,
                       dev="png",
                       dpi = 300,
-                      fig.width = 6,
+                      fig.width = 12,
+                      fig.height=12,
                       fig.asp = 0.8,
                       fig.retina = 2,
                       out.width = "100%")
@@ -60,8 +61,6 @@ commune_shp_linked <- commune_shp %>%
               select('adm1_pcode', 'adm2_pcode', 'adm3_pcode','iu_id', 'total_pop'),
             by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode'))
 
-x <- commune_shp_linked %>% as_tibble() %>% select(-geometry)
-
 
 # Import oncho data from ESPEN
 ang_espen_data <-
@@ -81,13 +80,14 @@ loa_loa_wd <-
 unknown_commune_shp <- commune_shp_linked %>% 
   left_join(ang_espen_data, by=c('iu_id' = 'IU_ID')) %>% 
   filter(grepl('Unknown', Endemicity)) %>% 
-  select(-Endemicity) %>% 
-  left_join(loa_loa_wd, by=c('iu_id' = 'IU_ID')) %>% 
-  mutate(oncho_status="Unknown")
+  #select(-Endemicity) %>% 
+  left_join(loa_loa_wd, by=c('iu_id' = 'IU_ID')) 
+  #mutate(oncho_status="Unknown")
   
+length(unique(unknown_commune_shp$adm1_en))
+length(unique(unknown_commune_shp$adm2_en))
+length(unique(unknown_commune_shp$adm3_en))
 
-# 398 communes
-# 112 IUs
 
 ```
 
@@ -100,6 +100,17 @@ iu_commune_map_labels <- adm1_shp %>%
 
 iu_commune_map_labels
 
+scale_fill_end <- function(...){
+    ggplot2:::manual_scale(
+        'fill', 
+        values = setNames(c('green', 'blue', 'red', 'orange'), 
+                          c('Endemic (MDA not delivered)', 'Endemic (under MDA)', 
+                          'Unknown (consider Oncho Elimination Mapping)', 
+                          'Unknown (under LF MDA)')), 
+        ...
+    )
+}
+
 iu_commune_endemicity <- iu_shp %>% 
   left_join(ang_espen_data, by='IU_ID') %>% 
   ggplot() +
@@ -107,15 +118,17 @@ iu_commune_endemicity <- iu_shp %>%
     size = 0.05) +
         geom_sf(fill = "transparent", color = "black", size = 1.5,
             data=adm1_shp) +
+  labs(fill="Endemicity") +
         theme(legend.position = "top")
 
 iu_commune_endemicity
 
 iu_commune_map <- unknown_commune_shp %>%
   ggplot() +
-  geom_sf(aes(fill = oncho_status)) +
+  geom_sf(aes(fill = Endemicity)) +
     geom_sf(fill = "transparent", color = "black", size = 1.5,
             data=adm1_shp) +
+    labs(fill="Endemicity") +
       theme(legend.position = "top")
 
 iu_commune_map
@@ -167,6 +180,8 @@ angola_commune_oncho_noloaloa_map <- angola_commune_oncho_collapse %>%
   geom_sf(aes(fill = oncho_mean_aw)) +
      geom_sf(fill = "transparent", color = "black", size = 1.5,
           data = adm1_shp) +
+  labs(fill="Environmental suitability (Mean)") +
+  theme(legend.position = "top") +
   commune_fill
 
 angola_commune_oncho_noloaloa_map
@@ -194,11 +209,6 @@ Check environmental suitability by Loa loa endemicity
 
 ```{r country-commune-noloaloa-map}
 #Calculate weighted mean
-# angola_commune_oncho_noloaloa_collapse <- angola_commune_oncho %>%
-#   filter(loaloa_status == "Non-endemic") %>% 
-#   group_by(adm1_en, adm2_en, adm3_en) %>%
-#   summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))
-
 angola_commune_oncho_noloaloa_collapse <- setDT(angola_commune_oncho)[
   loaloa_status == "Non-endemic"] [
   , keyby = .(adm1_en, adm2_en, adm3_en), 
@@ -212,7 +222,9 @@ angola_commune_oncho_noloaloa_collapse <- setDT(angola_commune_oncho)[
   geom_sf(aes(fill = oncho_mean_aw)) +
      geom_sf(fill = "transparent", color = "black", size = 1.5, 
           data = adm1_shp) +
-    commune_fill)
+     labs(fill="Environmental suitability (Mean)") +
+  theme(legend.position = "top") +
+  commune_fill)
 
 commune_boxwhisker <- angola_commune_oncho %>% 
   filter(loaloa_status == "Non-endemic") %>% 
@@ -236,6 +248,7 @@ commune_map <-  angola_commune_oncho_noloaloa_collapse %>%
   imap(~ ggplot(data = .x) +
       geom_sf(aes(fill = oncho_mean_aw)) +
       geom_sf_label_repel(aes(label = adm3_en)) +
+        labs(fill="Environmental suitability (Mean)") +
       theme(legend.position = 'top') +
       labs(x = "", y = "", fill = "Environmental suitability") +
       commune_fill +
@@ -249,20 +262,26 @@ commune_col <- angola_commune_oncho_noloaloa_collapse %>%
   imap(~ ggplot(data=.x) +
          geom_col(aes(x=adm3_en, y=total_pop)) +
        theme_bw() +
-         #scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
          labs(x='Commune', 
               y='Popoulation') +
          ggtitle(.y) 
   )
 
-all_plots <- map2(commune_map,commune_boxwhisker,commune_col,~{.x / .y + .z})
+#all_plots <- map2(commune_map,commune_boxwhisker,commune_col,~{.x / .y + .z})
+
+all_plots <- c()
+for (i in 1:80) {
+ x <-  (commune_map[[i]] + commune_col[[i]]) / commune_boxwhisker[[i]]
+ all_plots[[length(all_plots) + 1]] <- x    # Append new list element
+}
 
 ```
 
 
 
 
-```{r fig.height=12, fig.width=12}
+```{r commune-plots, fig.height=12, fig.width=12}
 all_plots
 ```
 
