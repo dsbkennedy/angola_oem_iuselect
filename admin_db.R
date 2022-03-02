@@ -69,7 +69,7 @@ rm(commune_admin_codes, iu_admin_codes)
 
 
 # Population wrangling ----------------------------------------------------
-
+#https://medium.com/@samukweku/reshaping-an-excel-table-in-r-71d7d9020124
 
 #sourcefile
 filename <- here('data/input/Estimativas_Comunais_Geral_Final.xlsx')
@@ -119,12 +119,7 @@ province_commune_population <- commune_pop_append %>%
   #mutate(row = row_number()) %>%
   pivot_wider(id_cols=c('province','commune'), names_from=age_group, values_from=population)  %>% 
   clean_data()
-#pivot_wider(names_from=age_group, values_from=population) %>%  
-#select(-row)
 
-# oncho_pop_shp <- angola_commune_oncho_collapse %>% 
-#   clean_data %>% 
-#   left_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) 
 
 pop_linked <- linking_db %>% 
   distinct(adm1_en,adm1_pcode,adm2_en,adm2_pcode,adm3_en,adm3_pcode) %>% 

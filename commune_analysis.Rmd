@@ -11,6 +11,7 @@ output:
 knitr::opts_chunk$set(echo = FALSE, 
                       warning = FALSE, 
                       cache=TRUE,
+                      include=FALSE,
                       dev="png",
                       dpi = 300,
                       fig.width = 6,
@@ -56,8 +57,10 @@ source(here('admin_db.R'))
 
 commune_shp_linked <- commune_shp %>% 
   left_join(final_linked_db %>% 
-              select('adm1_pcode', 'adm2_pcode', 'adm3_pcode','iu_id'),
+              select('adm1_pcode', 'adm2_pcode', 'adm3_pcode','iu_id', 'total_pop'),
             by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode'))
+
+x <- commune_shp_linked %>% as_tibble() %>% select(-geometry)
 
 
 # Import oncho data from ESPEN
@@ -175,13 +178,12 @@ Check environmental suitability by Loa loa endemicity
 
 ```{r loa-loa}
 
-oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho, 
+(oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho, 
                                     aes(x=value, group=loaloa_status, fill=loaloa_status)) +
     geom_density(adjust=1.5, alpha=.4) +
-    labs(x="Environmental suitability", fill="Loa loa status") +
-    theme_tufte()
+    labs(x="Environmental suitability", fill="Loa loa status"))
   
-oncho_env_loaloa_compare
+#oncho_env_loaloa_compare
 
  (oncho_env_loaloa_ttest <- t.test(value ~ loaloa_status, 
                                    data = angola_commune_oncho, 
@@ -214,7 +216,7 @@ angola_commune_oncho_noloaloa_collapse <- setDT(angola_commune_oncho)[
 
 commune_boxwhisker <- angola_commune_oncho %>% 
   filter(loaloa_status == "Non-endemic") %>% 
-  mutate(location_name=paste(adm1_en,adm3_en, sep= "-")) %>% 
+  mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
   split(.$location_name) %>%
   imap(~ ggplot(data=.x) +
         geom_boxplot(aes(value, reorder(adm3_en,desc(adm3_en)))) + 
@@ -227,7 +229,9 @@ commune_boxwhisker <- angola_commune_oncho %>%
 
 
 commune_map <-  angola_commune_oncho_noloaloa_collapse %>%
-  mutate(location_name=paste(adm1_en,adm3_en, sep= "-")) %>% 
+  as.data.frame() %>% 
+  st_as_sf() %>% 
+  mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
   split(.$location_name) %>%
   imap(~ ggplot(data = .x) +
       geom_sf(aes(fill = oncho_mean_aw)) +
@@ -238,79 +242,27 @@ commune_map <-  angola_commune_oncho_noloaloa_collapse %>%
       ggtitle(.y)
   )
 
-all_plots <- map2(commune_map,commune_boxwhisker,~{.x / .y})
-
-```
-
-
-```{r population_data}
-#https://medium.com/@samukweku/reshaping-an-excel-table-in-r-71d7d9020124
-
-#sourcefile
-filename <- here('data/input/Estimativas_Comunais_Geral_Final.xlsx')
-#get list of sheet_names
-#which also represents the company names
-sheet_names <- xlsx_sheet_names(filename)#read in file, using the tidyxl package
-#filter for only character and numeric
-#and pick specific rows and columns
-def <- function(sheetname){xlsx_cells(filename,sheetname)%>%
-    filter(data_type %in% c("character","numeric"), 
-           row >=5, 
-           col >=1)}
-#stage1
-#apply function to sheetnames
-#using the purrr library
-stage1 <- map(sheet_names, def)
-
-def_main <- function(datum){datum%>%
-    select(sheet,row,col,data_type,character,numeric)%>%
-    #behead("NNE",years)%>%
-    behead("N",commune)%>%
-    fill(character, .direction = "down") %>% 
-    filter(!is.na(commune))
-  }#apply function to every tibble in stage1
-stage2 <- map(stage1,def_main)
-
-commune_pop_append <- bind_rows(stage2) %>% 
-  select(province=sheet,commune, age_group=character, population=numeric)  %>% 
-  dplyr::filter(!is.na(population))  %>% 
-  clean_data() %>% 
-  filter(!grepl("estimativ", commune, ignore.case=TRUE)) %>% 
-  filter(!grepl("estimativ", age_group, ignore.case=TRUE)) %>%
-  filter(!grepl("controlo", commune, ignore.case=TRUE)) %>% 
-  filter(age_group!='total') %>% 
-  mutate(commune=case_when(commune=="quibocolo" ~ "kibocolu", 
-                           TRUE ~ commune))
-  
-province_commune_match <- commune_pop_append %>%
-  filter(province==commune | commune=="chitato" | commune=="bengo" | commune=="caiongo") %>%
-  group_by(province,commune,age_group) %>%
-  slice(which.min(population))
-
-province_commune_population <- commune_pop_append %>%
-  filter(!commune %in% c("chitato","bengo","caiongo")) %>% 
-  filter(province!=commune) %>% 
-  bind_rows(province_commune_match) %>% 
-  #mutate(row = row_number()) %>%
-  pivot_wider(id_cols=c('province','commune'), names_from=age_group, values_from=population) 
-  #pivot_wider(names_from=age_group, values_from=population) %>%  
-  #select(-row)
-
-commune_pop_clean <- province_commune_population %>% clean_data()
-
-oncho_pop_shp <- angola_commune_oncho_collapse %>% clean_data %>% 
-  left_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) 
-
-oncho_pop_table <- oncho_pop_shp %>% 
+commune_col <- angola_commune_oncho_noloaloa_collapse %>% 
   as_tibble() %>% 
-  select(-geometry) %>% 
-  clean_names() %>% 
-  mutate(pop_data=ifelse(!is.na(x0_4_anos), "Yes", "No"))
-  
+  mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
+  split(.$location_name) %>%
+  imap(~ ggplot(data=.x) +
+         geom_col(aes(x=adm3_en, y=total_pop)) +
+       theme_bw() +
+         #scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+         labs(x='Commune', 
+              y='Popoulation') +
+         ggtitle(.y) 
+  )
+
+all_plots <- map2(commune_map,commune_boxwhisker,commune_col,~{.x / .y + .z})
+
 ```
 
 
-```{r eval=FALSE, fig.height=12, fig.width=12, include=FALSE}
+
+
+```{r fig.height=12, fig.width=12}
 all_plots
 ```
 
