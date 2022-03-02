@@ -1,8 +1,8 @@
 # ADMIN CODES
-library(here)
-library(sf)
+
 library(tidyverse)
-library(linelist)
+
+pacman::p_load(here,sf,linelist,fuzzyjoin)
 
 commune_admin_codes <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>%  
   as_tibble() %>% 
@@ -65,3 +65,86 @@ linking_db <- commune_admin_codes %>%
   right_join(iu_admin_codes, by=(c('adm1_en' = 'admin1', 'adm2_en' = 'admin2')))
 
 rm(commune_admin_codes, iu_admin_codes)
+
+
+
+# Population wrangling ----------------------------------------------------
+
+
+#sourcefile
+filename <- here('data/input/Estimativas_Comunais_Geral_Final.xlsx')
+#get list of sheet_names
+#which also represents the company names
+sheet_names <- xlsx_sheet_names(filename)#read in file, using the tidyxl package
+#filter for only character and numeric
+#and pick specific rows and columns
+def <- function(sheetname){xlsx_cells(filename,sheetname)%>%
+    filter(data_type %in% c("character","numeric"), 
+           row >=5, 
+           col >=1)}
+#stage1
+#apply function to sheetnames
+#using the purrr library
+stage1 <- purrr::map(sheet_names, def)
+
+def_main <- function(datum){datum%>%
+    select(sheet,row,col,data_type,character,numeric)%>%
+    #behead("NNE",years)%>%
+    behead("N",commune)%>%
+    fill(character, .direction = "down") %>% 
+    filter(!is.na(commune))
+}#apply function to every tibble in stage1
+stage2 <- purrr::map_df(stage1,def_main)
+
+commune_pop_append <- bind_rows(stage2) %>% 
+  select(province=sheet,commune, age_group=character, population=numeric)  %>% 
+  dplyr::filter(!is.na(population))  %>% 
+  clean_data() %>% 
+  filter(!grepl("estimativ", commune, ignore.case=TRUE)) %>% 
+  filter(!grepl("estimativ", age_group, ignore.case=TRUE)) %>%
+  filter(!grepl("controlo", commune, ignore.case=TRUE)) %>% 
+  filter(age_group!='total') %>% 
+  mutate(commune=case_when(commune=="quibocolo" ~ "kibocolu", 
+                           TRUE ~ commune))
+
+province_commune_match <- commune_pop_append %>%
+  filter(province==commune | commune=="chitato" | commune=="bengo" | commune=="caiongo") %>%
+  group_by(province,commune,age_group) %>%
+  slice(which.min(population))
+
+province_commune_population <- commune_pop_append %>%
+  filter(!commune %in% c("chitato","bengo","caiongo")) %>% 
+  filter(province!=commune) %>% 
+  bind_rows(province_commune_match) %>% 
+  #mutate(row = row_number()) %>%
+  pivot_wider(id_cols=c('province','commune'), names_from=age_group, values_from=population)  %>% 
+  clean_data()
+#pivot_wider(names_from=age_group, values_from=population) %>%  
+#select(-row)
+
+# oncho_pop_shp <- angola_commune_oncho_collapse %>% 
+#   clean_data %>% 
+#   left_join(commune_pop_clean, by=c('adm1_en'='province', 'adm3_en'='commune')) 
+
+pop_linked <- linking_db %>% 
+  distinct(adm1_en,adm1_pcode,adm2_en,adm2_pcode,adm3_en,adm3_pcode) %>% 
+  select(-adm2_en) %>% 
+  filter(!is.na(adm3_en)) %>% 
+  mutate(linked_db=1) %>% 
+stringdist_inner_join(province_commune_population, by = c("adm1_en"="province",
+                                                "adm3_en" = "commune"), max_dist = 1) %>% 
+  mutate(total_pop = rowSums(select(., contains('_anos')))) %>% 
+  #select(-contains('_anos')) %>% 
+  select(adm1_pcode, adm2_pcode, adm3_pcode,adm3_en, total_pop)
+
+
+# Merge population data back to initial linked dataset --------------------
+
+final_linked_db <- linking_db %>% 
+  left_join(pop_linked, by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode')) 
+  #distinct(adm1_pcode, adm2_pcode, adm3_pcode)
+
+
+rm(commune_pop_append, linking_db, pop_linked, province_commune_match, province_commune_population, stage1, stage2,
+   filename, sheet_names, def, def_main)
+  

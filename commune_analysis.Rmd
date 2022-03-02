@@ -25,10 +25,7 @@ pacman::p_load(raster, sf, exactextractr, here,
                janitor, patchwork,RColorBrewer,
                ggsflabel,broom,kableExtra,ggthemes,
                ggsn,gghighlight,ggsflabel,ggbeeswarm,
-               linelist,tidylog, patchwork)
-
-
-
+               data.table,linelist,tidylog, patchwork)
 
 commune_palette <- colorRampPalette(rev(brewer.pal(5, "Spectral")))
 commune_fill <- scale_fill_stepsn(n.breaks = 6, colours = viridis::viridis(6), limits=c(1, 100))
@@ -58,7 +55,7 @@ adm1_shp <- commune_shp %>%
 source(here('admin_db.R'))
 
 commune_shp_linked <- commune_shp %>% 
-  left_join(linking_db %>% 
+  left_join(final_linked_db %>% 
               select('adm1_pcode', 'adm2_pcode', 'adm3_pcode','iu_id'),
             by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode'))
 
@@ -78,55 +75,7 @@ loa_loa_wd <-
   select(IU_ID, loaloa_status)
 # 164 IUs
 
-# Filter IU shapefile to only include unknown endemicity
-iu_unknown_endemicity <- iu_shp %>% 
-  left_join(ang_espen_data, by='IU_ID') %>% 
-  filter(grepl('Unknown', Endemicity)) %>% 
-  left_join(loa_loa_wd, by='IU_ID') %>% 
-  rename(ADMIN1_espen=ADMIN1,
-         ADMIN2_espen=ADMIN2)
-  
-# 116 IUs
-
-# Melt commune shapefile to ADM2 level
-iu_combine_melt <- commune_shp %>% 
-  group_by(adm1_en,adm2_en) %>% 
-  dplyr::summarise() 
-
-# 161 IUs
-
-# Join IU & melted ADM2 shapefiles
-iu_commune <- sf::st_join(iu_unknown_endemicity,iu_combine_melt, 
-                          largest = TRUE, join = st_within, left=FALSE)
-# 116 IUs
-
-iu_df <- iu_commune %>% as_tibble() %>% select(-geometry) %>% 
-  filter(!is.na(Endemicity))
-
-
-# Extract ADM2 name from joined datasets
-adm2_unknown <- iu_commune %>% 
-  #pull(ADM2_EN)
-  as_tibble() %>% 
-  select(adm1_en,adm2_en,Endemicity, loaloa_status) 
-  # group_by(ADMIN1_com,ADMIN2_com) %>% 
-  # filter(duplicated(ADMIN1_com,ADMIN2_com)|n()==1)
-
-#112 IUs
-
-#Filter commune dataset to only include IUs identified as "Unknown" endemicity
-unknown_commune_shp <- commune_shp %>% 
-  #mutate(join_key=paste0(ADM1_EN,ADM2_EN, sep="-")) %>% 
-  #left_join(adm2_unknown, by='join_key') %>% 
-  #filter(!is.na(Endemicity))
-  #filter(ADM2_EN %in% adm2_unknown)
-  right_join(adm2_unknown,by=c('adm1_en','adm2_en'))
-
- # right_join(adm2_unknown,by=c('ADM1_EN'='ADMIN1_com', 'ADM2_EN'='ADMIN2_com'))
-
-unknown_commune_df <- unknown_commune_shp %>% as_tibble() %>% select(adm1_en, adm2_en, adm3_en) %>% mutate(spatial_join=1)
-
-commune_shp_unknown <- commune_shp_linked %>% 
+unknown_commune_shp <- commune_shp_linked %>% 
   left_join(ang_espen_data, by=c('iu_id' = 'IU_ID')) %>% 
   filter(grepl('Unknown', Endemicity)) %>% 
   select(-Endemicity) %>% 
@@ -134,11 +83,7 @@ commune_shp_unknown <- commune_shp_linked %>%
   mutate(oncho_status="Unknown")
   
 
-# Ilha do Cabo
-# Danje ia Menha
-
-
-# 428 communes
+# 398 communes
 # 112 IUs
 
 ```
@@ -148,7 +93,7 @@ commune_shp_unknown <- commune_shp_linked %>%
 iu_commune_map_labels <- adm1_shp %>%
   ggplot() +
   geom_sf(fill = "transparent", color = "black", size = 1.5) +
-  geom_sf_label_repel(aes(label = ADM1_EN))
+  geom_sf_label_repel(aes(label = adm1_en))
 
 iu_commune_map_labels
 
@@ -159,43 +104,19 @@ iu_commune_endemicity <- iu_shp %>%
     size = 0.05) +
         geom_sf(fill = "transparent", color = "black", size = 1.5,
             data=adm1_shp) +
-  # geom_sf(
-  #   fill = "transparent",
-  #   color = "black",
-  #   size = 0.5,
-  #   data = commune_shp
-  # ) +
         theme(legend.position = "top")
 
 iu_commune_endemicity
 
 iu_commune_map <- unknown_commune_shp %>%
   ggplot() +
-  geom_sf(aes(fill = Endemicity)) +
+  geom_sf(aes(fill = oncho_status)) +
     geom_sf(fill = "transparent", color = "black", size = 1.5,
             data=adm1_shp) +
       theme(legend.position = "top")
 
 iu_commune_map
 
-iu_commune_map_upd <- commune_shp_unknown %>%
-  ggplot() +
-  geom_sf(aes(fill = oncho_status)) +
-  geom_sf(fill = "transparent", color = "black", size = 1.5,
-          data=adm1_shp) +
-  theme(legend.position = "none")
-
-iu_commune_map_upd
-
-iu_commune_df <- iu_commune_map$data %>% as_tibble() %>% select(-geometry)
-  # #geom_sf_label(aes(label = ADM3_EN)) +
-  # geom_sf(
-  #   fill = "transparent",
-  #   color = "black",
-  #   size = 0.5,
-  #   data = iu_unknown_endemicity
-  # ) +
-  #  theme(legend.position = "none"))
 ```
 
 ```{r raster-wrangling}
@@ -220,14 +141,22 @@ angola_commune_oncho <- unknown_commune_shp %>%
   mutate(id := seq_len(nrow(.))) %>%
   left_join(., unknown_iu_oncho_combined, by = "id") 
 
-
 ```
 
 ```{r}
 #Calculate weighted mean
-angola_commune_oncho_collapse <- angola_commune_oncho %>%
-  group_by(ADM1_EN,ADM2_EN,ADM3_EN) %>%
-  summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
+# angola_commune_oncho_collapse <- angola_commune_oncho %>%
+#   group_by(adm1_en, adm2_en, adm3_en) %>%
+#   summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
+
+angola_commune_oncho_collapse <- setDT(angola_commune_oncho)[, keyby = .(adm1_en, adm2_en, adm3_en), 
+                          .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%  
+  merge(unknown_commune_shp, all=TRUE, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
+  st_as_sf()
+
+# y <- merge(unknown_commune_shp, angola_commune_oncho_collapse, all = TRUE, by = "Id")
+# 
+# angola_commune_oncho_collapse <- merge(unknown_commune_shp, angola_commune_oncho_summary, all.x = TRUE, by = c('adm1_en', 'adm2_en','adm3_en'))
 
 # Map weighted mean by ADM3  
 angola_commune_oncho_noloaloa_map <- angola_commune_oncho_collapse %>% 
@@ -254,20 +183,29 @@ oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho,
   
 oncho_env_loaloa_compare
 
- (oncho_env_loaloa_ttest <-t.test(value ~ loaloa_status, data = angola_commune_oncho, var.equal = TRUE) %>% 
+ (oncho_env_loaloa_ttest <- t.test(value ~ loaloa_status, 
+                                   data = angola_commune_oncho, 
+                                   var.equal = TRUE) %>% 
     tidy())
   
 ```
 
 ```{r country-commune-noloaloa-map}
 #Calculate weighted mean
-angola_commune_oncho_noloaloa_collapse <- angola_commune_oncho %>%
-  filter(loaloa_status == "Non-endemic") %>% 
-  group_by(ADM1_EN,ADM2_EN,ADM3_EN) %>%
-  summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))  
+# angola_commune_oncho_noloaloa_collapse <- angola_commune_oncho %>%
+#   filter(loaloa_status == "Non-endemic") %>% 
+#   group_by(adm1_en, adm2_en, adm3_en) %>%
+#   summarise(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))
+
+angola_commune_oncho_noloaloa_collapse <- setDT(angola_commune_oncho)[
+  loaloa_status == "Non-endemic"] [
+  , keyby = .(adm1_en, adm2_en, adm3_en), 
+                          .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%  
+  merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
+  st_as_sf()
 
 # Map weighted mean by ADM3  
-(angola_commune_oncho_noloaloa_map <- angola_commune_oncho_collapse %>% 
+(angola_commune_oncho_noloaloa_map <- angola_commune_oncho_noloaloa_collapse %>% 
   ggplot() +
   geom_sf(aes(fill = oncho_mean_aw)) +
      geom_sf(fill = "transparent", color = "black", size = 1.5, 
@@ -276,10 +214,10 @@ angola_commune_oncho_noloaloa_collapse <- angola_commune_oncho %>%
 
 commune_boxwhisker <- angola_commune_oncho %>% 
   filter(loaloa_status == "Non-endemic") %>% 
-  mutate(location_name=paste(ADM1_EN,ADM2_EN, sep= "-")) %>% 
+  mutate(location_name=paste(adm1_en,adm3_en, sep= "-")) %>% 
   split(.$location_name) %>%
   imap(~ ggplot(data=.x) +
-        geom_boxplot(aes(value, reorder(ADM3_EN,desc(ADM3_EN)))) + 
+        geom_boxplot(aes(value, reorder(adm3_en,desc(adm3_en)))) + 
         theme_bw() +
         scale_x_continuous(limits=c(0,100),sec.axis = dup_axis()) +
         labs(x='Environmental suitability', 
@@ -289,11 +227,11 @@ commune_boxwhisker <- angola_commune_oncho %>%
 
 
 commune_map <-  angola_commune_oncho_noloaloa_collapse %>%
-  mutate(location_name=paste(ADM1_EN,ADM2_EN, sep= "-")) %>% 
+  mutate(location_name=paste(adm1_en,adm3_en, sep= "-")) %>% 
   split(.$location_name) %>%
   imap(~ ggplot(data = .x) +
       geom_sf(aes(fill = oncho_mean_aw)) +
-      geom_sf_label_repel(aes(label = ADM3_EN)) +
+      geom_sf_label_repel(aes(label = adm3_en)) +
       theme(legend.position = 'top') +
       labs(x = "", y = "", fill = "Environmental suitability") +
       commune_fill +
@@ -369,7 +307,6 @@ oncho_pop_table <- oncho_pop_shp %>%
   clean_names() %>% 
   mutate(pop_data=ifelse(!is.na(x0_4_anos), "Yes", "No"))
   
-
 ```
 
 
