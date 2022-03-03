@@ -8,17 +8,19 @@ output:
 ---
 
 ```{r setup}
-knitr::opts_chunk$set(echo = FALSE, 
-                      warning = FALSE, 
-                      cache=TRUE,
-                      include=FALSE,
-                      dev="png",
-                      dpi = 300,
-                      fig.width = 12,
-                      fig.height=12,
-                      fig.asp = 0.8,
-                      fig.retina = 2,
-                      out.width = "100%")
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.asp = 0.8,
+	fig.height = 12,
+	fig.retina = 2,
+	fig.width = 12,
+	warning = FALSE,
+	cache = TRUE,
+	dev = "png",
+	dpi = 300,
+	include = FALSE,
+	out.width = "100%"
+)
 require(pacman)
 library(tidyverse)
 pacman::p_load(raster, sf, exactextractr, here,
@@ -29,7 +31,7 @@ pacman::p_load(raster, sf, exactextractr, here,
                ggsn,gghighlight,ggsflabel,ggbeeswarm,
                data.table,linelist,tidylog, patchwork)
 
-commune_palette <- colorRampPalette(rev(brewer.pal(5, "Spectral")))
+commune_palette <- colorRampPalette(rev(brewer.pal(6, "Spectral")))
 commune_fill <- scale_fill_stepsn(n.breaks = 6, colours = viridis::viridis(6), limits=c(1, 100))
 ```
 
@@ -46,11 +48,13 @@ commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_o
   select(ADM1_EN, ADM1_PCODE, ADM2_EN,ADM2_PCODE, ADM3_EN,ADM3_PCODE, geometry) %>% 
     clean_data()
 
-# 539 communes 
-
 adm1_shp <- commune_shp %>%
   group_by(adm1_en) %>%
   summarise()
+
+
+# 539 communes 
+
 
 # 18 provinces 
 
@@ -66,7 +70,7 @@ commune_shp_linked <- commune_shp %>%
 ang_espen_data <-
   read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
   filter(Year == 2020) %>% 
-  select(IU_ID, Endemicity, population=PopTot)
+  select(IU_ID, Endemicity, population=PopTot) 
 
 # 164 IUs
 
@@ -96,17 +100,25 @@ length(unique(unknown_commune_shp$adm3_en))
 iu_commune_map_labels <- adm1_shp %>%
   ggplot() +
   geom_sf(fill = "transparent", color = "black", size = 1.5) +
-  geom_sf_label_repel(aes(label = adm1_en))
+  geom_sf_label(aes(label = adm1_en))
 
 iu_commune_map_labels
+
+commune_map <- commune_shp %>%
+  ggplot() +
+  geom_sf(fill = "transparent", color = "red", size = 0.5) +
+     geom_sf(fill = "transparent", color = "black", size = 1.5,
+            data=adm1_shp)
+
+commune_map
+
+endemicity_labels <- ang_espen_data %>% tabyl(Endemicity) %>% pull(Endemicity)
 
 scale_fill_end <- function(...){
     ggplot2:::manual_scale(
         'fill', 
         values = setNames(c('green', 'blue', 'red', 'orange'), 
-                          c('Endemic (MDA not delivered)', 'Endemic (under MDA)', 
-                          'Unknown (consider Oncho Elimination Mapping)', 
-                          'Unknown (under LF MDA)')), 
+                          endemicity_labels), 
         ...
     )
 }
@@ -116,10 +128,11 @@ iu_commune_endemicity <- iu_shp %>%
   ggplot() +
   geom_sf(aes(fill = Endemicity),
     size = 0.05) +
-        geom_sf(fill = "transparent", color = "black", size = 1.5,
-            data=adm1_shp) +
+        # geom_sf(fill = "transparent", color = "black", size = 1.5,
+        #     data=adm1_shp) +
   labs(fill="Endemicity") +
-        theme(legend.position = "top")
+        theme(legend.position = "top") +
+  scale_fill_end()
 
 iu_commune_endemicity
 
@@ -129,7 +142,8 @@ iu_commune_map <- unknown_commune_shp %>%
     geom_sf(fill = "transparent", color = "black", size = 1.5,
             data=adm1_shp) +
     labs(fill="Endemicity") +
-      theme(legend.position = "top")
+      theme(legend.position = "top") +
+    scale_fill_end()
 
 iu_commune_map
 
@@ -265,10 +279,10 @@ commune_col <- angola_commune_oncho_noloaloa_collapse %>%
   scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
          labs(x='Commune', 
               y='Popoulation') +
-         ggtitle(.y) 
+         ggtitle(.y) +
+    coord_flip()
   )
 
-#all_plots <- map2(commune_map,commune_boxwhisker,commune_col,~{.x / .y + .z})
 
 all_plots <- c()
 for (i in 1:80) {
@@ -279,9 +293,68 @@ for (i in 1:80) {
 ```
 
 
+```{r province-plots}
+province_map <-  angola_commune_oncho_noloaloa_collapse %>%
+  as.data.frame() %>% 
+  st_as_sf() %>% 
+  #mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
+  split(.$adm1_en) %>%
+  imap(~ ggplot(data = .x) +
+      geom_sf(aes(fill = oncho_mean_aw)) +
+      geom_sf_label_repel(aes(label = adm3_en)) +
+        labs(fill="Environmental suitability (Mean)") +
+      theme(legend.position = 'top') +
+      labs(x = "", y = "", fill = "Environmental suitability") +
+      commune_fill +
+      ggtitle(.y)
+  )
+province_map
+```
 
 
-```{r commune-plots, fig.height=12, fig.width=12}
+```{r commune-plots}
 all_plots
+```
+
+
+```{r additional-filtering}
+library(viridis)  # Load viridis for the viridis palette
+#Calculate weighted mean
+oem_map_cat_df <- setDT(angola_commune_oncho)[
+  loaloa_status == "Non-endemic"] [
+    , keyby = .(adm1_en, adm2_en, adm3_en), 
+    .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%  
+  merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
+  st_as_sf()  %>% 
+    as_tibble() %>% 
+  st_as_sf() %>% 
+  #filter(oncho_mean_aw>=71) %>% 
+  mutate(env_suit_cat = case_when (oncho_mean_aw >= 80 ~ '80+',
+                                   oncho_mean_aw >=60 & oncho_mean_aw <80 ~ '60-80',
+                                   oncho_mean_aw >=40 & oncho_mean_aw<60 ~ '40-60', 
+                                   oncho_mean_aw >=20 & oncho_mean_aw <40~ '20-40', 
+                                   oncho_mean_aw <20 ~ '<20')) 
+
+oem_map_cat_plot <- oem_map_cat_df %>% as_tibble() %>% 
+  count(adm1_en,env_suit_cat) %>% 
+  ggplot() +
+  geom_col(aes(x=reorder(adm1_en,desc(adm1_en)), y=n, fill=forcats::fct_rev(env_suit_cat))) +
+  coord_flip() +
+  labs(x='', y='', fill='Environmental suitability')
+
+oem_map_cat_plot
+
+oem_map_cat_map <- oem_map_cat_df %>%   
+  #tabyl(env_suit_cat) %>% 
+  ggplot() + 
+  geom_sf(aes(fill = env_suit_cat)) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
+          data = adm1_shp) +
+  labs(fill="Environmental suitability (Mean)") +
+  theme(legend.position = "top") +
+    scale_fill_viridis(discrete = TRUE)
+
+oem_map_cat_map
+
 ```
 
