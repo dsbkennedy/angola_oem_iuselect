@@ -14,6 +14,7 @@ knitr::opts_chunk$set(
 	fig.height = 12,
 	fig.retina = 2,
 	fig.width = 12,
+	include=FALSE,
 	warning = FALSE,
 	cache = TRUE,
 	dev = "png",
@@ -356,5 +357,175 @@ oem_map_cat_map <- oem_map_cat_df %>%
 
 oem_map_cat_map
 
+```
+
+```{r joining-questionnaire-data}
+# library(openxlsx)
+# iu_questionnaire <- openxlsx::read.xlsx(here::here('data', 'input', 'Angola_List_IUs.xlsx'), sheet='Questionnaire',
+#                                       fillMergedCells = TRUE, colNames = FALSE)
+# 
+# names(iu_questionnaire) <- paste(names(iu_questionnaire), iu_questionnaire[2, ], sep = "_")
+# 
+# iu_questionnaire_final <- slice(iu_questionnaire, -(1:2)) %>% clean_data() %>% 
+#   mutate(iu_id=as.integer(x5_administrative_iu_id))
+# 
+# commune_questionnaire <- setDT(angola_commune_oncho)[
+#   loaloa_status == "Non-endemic"] [
+#     , keyby = .(adm1_en, adm2_en, adm3_en, iu_id, total_pop, Endemicity), 
+#     .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%   
+#   as_tibble() %>% 
+#   select(adm1_en, adm2_en, adm3_en, iu_id, total_pop, Endemicity, oncho_mean_aw) %>%  
+#   left_join(iu_questionnaire_final,by=c('iu_id'))
+
+
+library(openxlsx)
+iu_questionnaire <- openxlsx::read.xlsx(here::here('data', 'input', 'Angola_List_IUs.xlsx'), sheet='Questionnaire',
+                                      fillMergedCells = TRUE, colNames = FALSE)
+
+
+names(iu_questionnaire) <- paste(names(iu_questionnaire), iu_questionnaire[2, ], sep = "_")
+
+iu_questionnaire_final <- slice(iu_questionnaire, -(1:2)) %>% clean_data() 
+  mutate(iu_id=as.integer(x5_administrative_iu_id))
+  
+questionnaire_template <- read.csv(here::here('data', 'input', 'questionnaire_template.csv')) %>% slice(1)
+
+commune_questionnaire <- setDT(angola_commune_oncho)[
+  loaloa_status == "Non-endemic"] [
+    , keyby = .(adm1_en, adm2_en, adm3_en, iu_id, total_pop, Endemicity), 
+    .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%   
+  as_tibble() %>% 
+  select(adm1_en, adm2_en, adm3_en, iu_id, total_pop, Endemicity, oncho_mean_aw) %>%  
+  left_join(iu_questionnaire_final,by=c('iu_id'))
+
+commune_questionnaire <- setDT(angola_commune_oncho)[
+  loaloa_status == "Non-endemic"] [
+    , keyby = .(adm1_en, adm2_en, adm3_en, iu_id,adm3_pcode, total_pop, Endemicity), 
+    .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%   
+  as_tibble() %>% 
+  bind_cols(questionnaire_template) %>% 
+  arrange(adm1_en,adm2_en,oncho_mean_aw)
+
+write.csv(commune_questionnaire,here::here('data', 'output', 'commune_questionnaire.csv'))
+
+length(is.na(commune_questionnaire$total_pop))
+
+commune_questionnaire %>% tabyl(total_pop)
+
+
+```
+
+```{r mapping-mosquito-sites}
+
+mosquito_sampling_sites <- read.csv(here('data', 'input', 'mentor_mosquito_sampling_sites.csv'))
+
+mosquito_sampling_sf <- mosquito_sampling_sites %>% 
+  st_as_sf(coords=c('latitude', 'longitude'))
+
+angola_oncho_mosquito_map <- angola_commune_oncho_noloaloa_collapse %>% 
+  filter(adm1_en %in% c('benguela', 'cuanza_sul')) %>% 
+  #filter(adm2_en %in% c('benguela', 'ganda', 'sumbe', 'quibala'))
+  ggplot() +
+  geom_sf(aes(fill = oncho_mean_aw)) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
+          data = adm1_shp) +
+  geom_point(
+    data = mosquito_sampling_sites, aes(x = longitude, y = latitude),
+    fill = "red", color = "red", alpha =1, size=4
+  ) +
+  labs(fill="Environmental suitability (Mean)") +
+  theme(legend.position = "top") +
+  commune_fill
+
+province_oncho_mosquito_map <- angola_commune_oncho_collapse %>% 
+  filter(adm1_en %in% c('benguela', 'cuanza_sul')) %>% 
+  #filter(adm2_en %in% c('benguela', 'ganda', 'sumbe', 'quibala'))
+  ggplot() +
+  geom_sf(aes(fill = oncho_mean_aw)) +
+  geom_sf_label_repel(aes(label = adm2_en)) +
+  geom_point(
+    data = mosquito_sampling_sites, aes(x = longitude, y = latitude),
+    fill = "red", color = "red", alpha =1, size=4
+  ) +
+  geom_text(
+    data = mosquito_sampling_sites,
+    aes(x = longitude, y = latitude,label=sentinel.site),color="red", 
+    nudge_x = 0.15, nudge_y = 0.15, 
+    check_overlap = T
+  ) +
+  labs(fill="Environmental suitability (Mean)") +
+  theme(legend.position = "top") +
+  commune_fill
+
+# Focus on Quibala & Ganda
+angola_commune_oncho_collapse %>% 
+  filter(adm3_en %in% c('kibala', 'ganda')) %>% 
+  ggplot() +
+  geom_sf(aes(fill = oncho_mean_aw)) +
+  geom_sf_label_repel(aes(label = adm3_en)) +
+  geom_point(
+    data = mosquito_sampling_sites %>% filter(sentinel.site %in% c('Quibala', 'Ganda')), aes(x = longitude, y = latitude),
+    fill = "red", color = "red", alpha =1, size=4
+  ) +
+  labs(fill="Environmental suitability (Mean)") +
+  theme(legend.position = "top") +
+  commune_fill
+
+kib_gan_shp <- angola_commune_oncho_collapse %>% 
+  filter(adm3_en %in% c('kibala', 'ganda'))
+
+#Add raster data
+africa_oncho_raster <- raster::raster(here('data', 'IHME_AFRICA_ONCHO_ENV_SUIT_MEAN_Y2020M08D26.TIF'))
+
+kib_gan_raster_crop <- mask(africa_oncho_raster, kib_gan_shp)
+
+kib_gan_raster_crop <- crop(africa_oncho_raster, kib_gan_raster_crop)
+
+kib_gan_raster_point_df  <-  rasterToPoints(kib_gan_raster_crop) %>% as_tibble() 
+colnames(kib_gan_raster_point_df) = c("lon", "lat", "suitability")
+
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
+sc <- scale_fill_gradientn(colours = myPalette(100), limits=c(1, 100))
+
+kib_gan_map <- ggplot() +
+  #geom_sf() +
+  geom_tile(data = kib_gan_raster_point_df %>% filter(suitability>=50), aes(lon, lat, fill = suitability), alpha = .7) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5, 
+          data = kib_gan_shp) +
+  geom_sf_label_repel(data=kib_gan_shp,aes(label = adm3_en)) +
+  geom_point(
+    data = mosquito_sampling_sites %>% filter(sentinel.site %in% c('Quibala', 'Ganda')), aes(x = longitude, y = latitude),
+    fill = "red", color = "red", shape=8, alpha =1, size=4
+  ) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(kib_gan_shp) +
+  scalebar(kib_gan_shp, dist = 25, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
+
+#Read in lakes and format file
+rivers <-
+  sf::st_read(here('data','input','rivers', 'afrivs.shp'))
+
+rivers_interest <- sf::st_intersection(rivers,kib_gan_shp)
+
+kib_gan_rivers_map <- ggplot() +
+  #geom_sf() +
+  geom_tile(data = kib_gan_raster_point_df %>% filter(suitability>=50), aes(lon, lat, fill = suitability), alpha = .7) +
+  geom_sf(fill = "transparent", color = "black", size = 1.5,
+          data = kib_gan_shp) +
+  geom_sf_label_repel(data=kib_gan_shp,aes(label = adm3_en)) +
+  geom_sf(data=rivers_interest, col="blue", lwd=0.4) +
+  geom_point(
+    data = mosquito_sampling_sites %>% filter(sentinel.site %in% c('Quibala', 'Ganda')), aes(x = longitude, y = latitude),
+    fill = "red", color = "red", shape=8, alpha =1, size=4
+  ) +
+  labs(fill='Environmental suitability') +
+  theme(legend.position='top') +
+  sc +
+  north(kib_gan_shp) +
+  scalebar(kib_gan_shp, dist = 25, dist_unit = "km",
+           transform = TRUE, model = "WGS84")
 ```
 
