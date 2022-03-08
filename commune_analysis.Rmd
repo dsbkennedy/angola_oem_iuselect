@@ -62,13 +62,14 @@ adm1_shp <- commune_shp %>%
 source(here('admin_db.R'))
 
 commune_shp_linked <- commune_shp %>% 
-  left_join(final_linked_db %>% 
+  inner_join(final_linked_db %>% 
               select('adm1_pcode', 'adm2_pcode', 'adm3_pcode','iu_id', 'total_pop'),
-            by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode'))
+            by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode')) %>% 
+                 distinct(adm1_pcode, adm2_pcode, adm3_pcode, .keep_all=TRUE)
 
 
 # Import oncho data from ESPEN
-ang_espen_data <-
+oncho_wd <-
   read.csv(here('data', 'input', 'espen_platform_oncho.csv')) %>%
   filter(Year == 2020) %>% 
   select(IU_ID, Endemicity, population=PopTot) 
@@ -77,17 +78,35 @@ ang_espen_data <-
 
 loa_loa_wd <-
   read.csv(here('data', 'input', 'espen_platform_loaloa.csv')) %>% 
-  rename(loaloa_status = Endemicity) %>% 
   filter(Year==2020) %>% 
-  select(IU_ID, loaloa_status)
+  select(IU_ID, loaloa_status=Endemicity)
 # 164 IUs
 
+lf_wd <- read.csv(here('data', 'input', 'espen_platform_lf.csv')) %>% 
+    filter(Year==2020) %>% 
+  select(IU_ID, lf_status=Endemicity)
+
+oncho_loa_loa_lf_data <- oncho_wd %>% 
+    left_join(loa_loa_wd, by=c('IU_ID')) %>% 
+      left_join(lf_wd, by=c('IU_ID')) 
+
 unknown_commune_shp <- commune_shp_linked %>% 
-  left_join(ang_espen_data, by=c('iu_id' = 'IU_ID')) %>% 
-  filter(grepl('Unknown', Endemicity)) %>% 
+    left_join(oncho_loa_loa_lf_data, by=c('iu_id' = 'IU_ID')) %>% 
+  #left_join(oncho_wd, by=c('iu_id' = 'IU_ID')) %>% 
+  filter(grepl('Unknown', Endemicity)) 
   #select(-Endemicity) %>% 
-  left_join(loa_loa_wd, by=c('iu_id' = 'IU_ID')) 
+  #left_join(loa_loa_wd, by=c('iu_id' = 'IU_ID')) 
   #mutate(oncho_status="Unknown")
+  
+unknown_commune_shp %>% 
+  as_tibble() %>%
+  #filter(loaloa_status=="Non-endemic") %>% 
+    tabyl(Endemicity,lf_status) %>%
+    adorn_totals(c("row", "col")) %>%
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(rounding = "half up", digits = 0) %>%
+  adorn_ns() %>%
+  adorn_title("combined")
   
 length(unique(unknown_commune_shp$adm1_en))
 length(unique(unknown_commune_shp$adm2_en))
@@ -113,7 +132,7 @@ commune_map <- commune_shp %>%
 
 commune_map
 
-endemicity_labels <- ang_espen_data %>% tabyl(Endemicity) %>% pull(Endemicity)
+endemicity_labels <- oncho_wd %>% tabyl(Endemicity) %>% pull(Endemicity)
 
 scale_fill_end <- function(...){
     ggplot2:::manual_scale(
@@ -125,15 +144,16 @@ scale_fill_end <- function(...){
 }
 
 iu_commune_endemicity <- iu_shp %>% 
-  left_join(ang_espen_data, by='IU_ID') %>% 
+  left_join(oncho_wd, by='IU_ID') %>% 
   ggplot() +
   geom_sf(aes(fill = Endemicity),
     size = 0.05) +
-        # geom_sf(fill = "transparent", color = "black", size = 1.5,
-        #     data=adm1_shp) +
-  labs(fill="Endemicity") +
-        theme(legend.position = "top") +
+        geom_sf(fill = "transparent", color = "black", size = 1.5,
+            data=adm1_shp) +
+  labs(fill="Oncohcerciasis Endemicity") +
+        theme(legend.position = c(0.85, 0.9)) +
   scale_fill_end()
+
 
 iu_commune_endemicity
 
@@ -142,8 +162,8 @@ iu_commune_map <- unknown_commune_shp %>%
   geom_sf(aes(fill = Endemicity)) +
     geom_sf(fill = "transparent", color = "black", size = 1.5,
             data=adm1_shp) +
-    labs(fill="Endemicity") +
-      theme(legend.position = "top") +
+  labs(fill="Oncohcerciasis Endemicity") +
+        theme(legend.position = c(0.85, 0.9)) +
     scale_fill_end()
 
 iu_commune_map
@@ -208,19 +228,45 @@ Check environmental suitability by Loa loa endemicity
 
 ```{r loa-loa}
 
-(oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho, 
+(oncho_env_loaloa_compare <- ggplot(data=angola_commune_oncho %>% filter(grepl("Unknown", Endemicity)), 
                                     aes(x=value, group=loaloa_status, fill=loaloa_status)) +
     geom_density(adjust=1.5, alpha=.4) +
     labs(x="Environmental suitability", fill="Loa loa status"))
   
 #oncho_env_loaloa_compare
-
  (oncho_env_loaloa_ttest <- t.test(value ~ loaloa_status, 
-                                   data = angola_commune_oncho, 
+                                   data = angola_commune_oncho %>% filter(grepl("Unknown", Endemicity)), 
                                    var.equal = TRUE) %>% 
     tidy())
   
 ```
+
+```{r env-suit-threshold}
+angola_commune_oncho_noloaloa_over71<- setDT(angola_commune_oncho)[
+  loaloa_status == "Non-endemic"] %>%  
+  mutate(over71=case_when(value>=71 ~ 1, 
+                          TRUE ~ 0)) %>% 
+  count(adm1_en, adm2_en, adm3_en,over71) %>% 
+  group_by(adm1_en, adm2_en, adm3_en) %>% 
+  mutate(propover71=100*(n/sum(n))) %>% 
+  filter(over71==1) %>% 
+  #summarise(total_over71=sum(over71)) %>% 
+  merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
+  st_as_sf()
+
+angola_commune_oncho_noloaloa_over71_map <- angola_commune_oncho_noloaloa_over71 %>% 
+  ggplot() +
+  geom_sf(aes(fill = propover71)) +
+     geom_sf(fill = "transparent", color = "black", size = 1.5,
+          data = adm1_shp) +
+     labs(fill="% of pixels (5x5km) in a commune exceeding environmental threshold >=0.71") +
+  theme(legend.position = "top") +
+    scale_fill_viridis_c(option = "magma", begin=0, end=1)
+
+angola_commune_oncho_noloaloa_over71_map
+
+```
+
 
 ```{r country-commune-noloaloa-map}
 #Calculate weighted mean
@@ -294,7 +340,7 @@ for (i in 1:80) {
 ```
 
 
-```{r province-plots}
+```{r province-plots, eval=FALSE, include=FALSE}
 province_map <-  angola_commune_oncho_noloaloa_collapse %>%
   as.data.frame() %>% 
   st_as_sf() %>% 
@@ -313,7 +359,7 @@ province_map
 ```
 
 
-```{r commune-plots}
+```{r commune-plots, eval=FALSE, include=FALSE}
 all_plots
 ```
 
@@ -359,7 +405,7 @@ oem_map_cat_map
 
 ```
 
-```{r joining-questionnaire-data}
+```{r joining-questionnaire-data, eval=FALSE, include=FALSE}
 # library(openxlsx)
 # iu_questionnaire <- openxlsx::read.xlsx(here::here('data', 'input', 'Angola_List_IUs.xlsx'), sheet='Questionnaire',
 #                                       fillMergedCells = TRUE, colNames = FALSE)
@@ -415,7 +461,7 @@ commune_questionnaire %>% tabyl(total_pop)
 
 ```
 
-```{r mapping-mosquito-sites}
+```{r mapping-mosquito-sites, eval=FALSE, include=FALSE}
 
 mosquito_sampling_sites <- read.csv(here('data', 'input', 'mentor_mosquito_sampling_sites.csv'))
 
@@ -433,16 +479,26 @@ angola_oncho_mosquito_map <- angola_commune_oncho_noloaloa_collapse %>%
     data = mosquito_sampling_sites, aes(x = longitude, y = latitude),
     fill = "red", color = "red", alpha =1, size=4
   ) +
+  geom_text(
+    data = mosquito_sampling_sites,
+    aes(x = longitude, y = latitude,label=sentinel.site),color="red", 
+    nudge_x = 0.25, nudge_y = 0.25, 
+    check_overlap = T
+  ) +
   labs(fill="Environmental suitability (Mean)") +
   theme(legend.position = "top") +
   commune_fill
+#angola_oncho_mosquito_map
+
+
+
 
 province_oncho_mosquito_map <- angola_commune_oncho_collapse %>% 
   filter(adm1_en %in% c('benguela', 'cuanza_sul')) %>% 
   #filter(adm2_en %in% c('benguela', 'ganda', 'sumbe', 'quibala'))
   ggplot() +
   geom_sf(aes(fill = oncho_mean_aw)) +
-  geom_sf_label_repel(aes(label = adm2_en)) +
+  #geom_sf_label_repel(aes(label = adm2_en)) +
   geom_point(
     data = mosquito_sampling_sites, aes(x = longitude, y = latitude),
     fill = "red", color = "red", alpha =1, size=4
@@ -457,8 +513,15 @@ province_oncho_mosquito_map <- angola_commune_oncho_collapse %>%
   theme(legend.position = "top") +
   commune_fill
 
+#province_oncho_mosquito_map
+
+
+
+
+x <- angola_oncho_mosquito_map + province_oncho_mosquito_map
+
 # Focus on Quibala & Ganda
-angola_commune_oncho_collapse %>% 
+kib_gan_map <- angola_commune_oncho_collapse %>% 
   filter(adm3_en %in% c('kibala', 'ganda')) %>% 
   ggplot() +
   geom_sf(aes(fill = oncho_mean_aw)) +
@@ -470,6 +533,8 @@ angola_commune_oncho_collapse %>%
   labs(fill="Environmental suitability (Mean)") +
   theme(legend.position = "top") +
   commune_fill
+
+
 
 kib_gan_shp <- angola_commune_oncho_collapse %>% 
   filter(adm3_en %in% c('kibala', 'ganda'))
@@ -487,7 +552,7 @@ colnames(kib_gan_raster_point_df) = c("lon", "lat", "suitability")
 myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
 sc <- scale_fill_gradientn(colours = myPalette(100), limits=c(1, 100))
 
-kib_gan_map <- ggplot() +
+kib_gan_raster_map <- ggplot() +
   #geom_sf() +
   geom_tile(data = kib_gan_raster_point_df %>% filter(suitability>=50), aes(lon, lat, fill = suitability), alpha = .7) +
   geom_sf(fill = "transparent", color = "black", size = 1.5, 
@@ -503,6 +568,9 @@ kib_gan_map <- ggplot() +
   north(kib_gan_shp) +
   scalebar(kib_gan_shp, dist = 25, dist_unit = "km",
            transform = TRUE, model = "WGS84")
+
+
+
 
 #Read in lakes and format file
 rivers <-
@@ -527,5 +595,14 @@ kib_gan_rivers_map <- ggplot() +
   north(kib_gan_shp) +
   scalebar(kib_gan_shp, dist = 25, dist_unit = "km",
            transform = TRUE, model = "WGS84")
+
+kib_gan_rivers_map
+
+ggsave(here('images',"angola_oncho_mosquito_map.png"),angola_oncho_mosquito_map)
+ggsave(here('images',"province_oncho_mosquito_map.png"),province_oncho_mosquito_map)
+ggsave(here('images',"kib_gan_map.png"),kib_gan_map)
+ggsave(here('images',"kib_gan_raster_map.png"),kib_gan_raster_map)
+ggsave(here('images',"kib_gan_rivers_map.png"),kib_gan_rivers_map)
+
 ```
 
