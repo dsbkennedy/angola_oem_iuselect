@@ -169,6 +169,58 @@ iu_commune_map <- unknown_commune_shp %>%
 iu_commune_map
 
 ```
+```{r neighbour-polygons}
+
+# Want to identify communes neighbouring endemic communes
+
+polygon_endemicity_shp <- commune_shp_linked %>% 
+    left_join(oncho_loa_loa_lf_data, by=c('iu_id' = 'IU_ID')) %>% 
+  mutate(endemicity_bin=case_when(grepl('Endemic', Endemicity) ~ 'Endemic',
+                              TRUE ~ "Unknown")) %>% 
+  select(adm1_en, adm2_en, adm3_en, endemicity_bin, geometry) %>% 
+    mutate(polygon_id = row_number())
+
+
+neighbors <- st_touches(polygon_endemicity_shp) %>% 
+  as.data.frame() %>% 
+  select(polygon_id=row.id, neighbour_polygon_id=col.id) %>% 
+  group_by(polygon_id) %>% 
+  mutate(neighbour_count = paste('poly_neighbour', dplyr::row_number(), sep='_')) %>% 
+  pivot_wider(names_from=neighbour_count, values_from=neighbour_polygon_id)
+  
+
+polygon_endemicity_neighbours_shp <- polygon_endemicity_shp %>% 
+  left_join(neighbors, by='polygon_id')
+
+endemic_poly <- polygon_endemicity_neighbours_shp %>% filter(grepl('Endemic', endemicity_bin)) %>% pull(polygon_id)
+  
+endemic_neighbour <- polygon_endemicity_neighbours_shp %>% filter(grepl('Endemic', endemicity_bin)) %>% 
+  as_tibble() %>% 
+  select(polygon_id, starts_with('poly_neighbour')) %>% 
+  pivot_longer(-polygon_id) %>% 
+  filter(!is.na(value)) %>% 
+  distinct(value) %>% 
+  arrange(value) %>% 
+  pull(value)
+
+endemic_neighbour_filtered <- setdiff(endemic_neighbour, endemic_poly)
+
+#Need to filter endemic neighbour on endemic poly
+neighbour_endemic_area <- polygon_endemicity_shp %>% 
+  filter(polygon_id %in% endemic_neighbour_filtered) %>% 
+  select(-c(polygon_id, geometry))
+
+neighbour_endemic_area_map <- neighbour_endemic_area %>% 
+  ggplot() +
+  geom_sf(aes(fill = endemicity_bin),
+    size = 0.05) +
+        geom_sf(fill = "transparent", color = "black", size = 1.5,
+            data=adm1_shp) +
+  labs(fill="Oncohcerciasis Endemicity") +
+        theme(legend.position = c(0.85, 0.9)) 
+
+
+```
 
 ```{r raster-wrangling}
 
