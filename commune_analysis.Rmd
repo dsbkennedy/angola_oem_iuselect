@@ -219,6 +219,8 @@ neighbour_endemic_area_map <- neighbour_endemic_area %>%
   labs(fill="Oncohcerciasis Endemicity") +
         theme(legend.position = c(0.85, 0.9)) 
 
+neighbour_endemic_area_map
+
 
 ```
 
@@ -306,6 +308,11 @@ angola_commune_oncho_noloaloa_over71<- setDT(angola_commune_oncho)[
   merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
   st_as_sf()
 
+commune_mapping_filter <- readRDS(here('data', 'output', 'commune_mapping_filter.Rds')) %>% 
+  mutate(prev_mapping=1)
+
+angola_commune_oncho_noloaloa_over71 %>% left_join(commune_mapping_filter, by=c('adm2_pcode', 'adm3_pcode'))
+
 angola_commune_oncho_noloaloa_over71_map <- angola_commune_oncho_noloaloa_over71 %>% 
   ggplot() +
   geom_sf(aes(fill = propover71)) +
@@ -327,7 +334,7 @@ angola_commune_oncho_noloaloa_collapse <- setDT(angola_commune_oncho)[
   , keyby = .(adm1_en, adm2_en, adm3_en), 
                           .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%  
   merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
-  st_as_sf()
+  st_as_sf() 
 
 # Map weighted mean by ADM3  
 (angola_commune_oncho_noloaloa_map <- angola_commune_oncho_noloaloa_collapse %>% 
