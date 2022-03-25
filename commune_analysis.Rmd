@@ -67,6 +67,9 @@ commune_shp_linked <- commune_shp %>%
             by=c('adm1_pcode', 'adm2_pcode', 'adm3_pcode')) %>% 
                  distinct(adm1_pcode, adm2_pcode, adm3_pcode, .keep_all=TRUE)
 
+x <- commune_shp_linked %>% as_tibble() %>% select(-geometry)
+
+write.csv(x, here('data', 'output', 'commune_pop.csv'))
 
 # Import oncho data from ESPEN
 oncho_wd <-

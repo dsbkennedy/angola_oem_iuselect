@@ -8,33 +8,36 @@ pdf_document: default
 ---
   
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, 
-                      warning = FALSE, 
-                      cache=TRUE,
-                      dev="png",
-                      dpi = 300,
-                      fig.width = 6,
-                      fig.asp = 0.8,
-                      fig.retina = 2,
-                      out.width = "100%")
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.asp = 0.8,
+	fig.height = 12,
+	fig.retina = 2,
+	fig.width = 12,
+	include=FALSE,
+	warning = FALSE,
+	cache = TRUE,
+	dev = "png",
+	dpi = 300,
+	include = FALSE,
+	out.width = "100%"
+)
 require(pacman)
 pacman::p_load(raster, sf, exactextractr, here, 
                leaflet, leaflet.extras, 
                janitor, patchwork,RColorBrewer,
-               ggsn,gghighlight,ggsflabel,conflicted,ggbeeswarm)
+               ggsn,gghighlight,ggsflabel,ggbeeswarm)
 library(tidyverse)
 
 
-conflict_prefer("select", "dplyr")
-conflict_prefer("filter", "dplyr")
-conflict_prefer("scalebar", "ggsn")
-conflict_prefer("geom_sf_label", "ggsflabel")
+# conflict_prefer("select", "dplyr")
+# conflict_prefer("filter", "dplyr")
+# conflict_prefer("scalebar", "ggsn")
+# conflict_prefer("geom_sf_label", "ggsflabel")
 
 myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
-sc <- scale_fill_gradientn(colours = myPalette(100), limits=c(1, 100))
-map_options <- north(ang_shp) +
-  scalebar(ang_shp, dist = 250, dist_unit = "km",
-           transform = TRUE, model = "WGS84")
+sc <- scale_fill_gradientn(colours = myPalette(100), limits=c(0, 1))
+
 ```
 
 Selecting municipalities for Onchocerciasis elimination mapping (OEM) can be supported by evidence from publicly available data on endemicity status and environmental suitability.
@@ -46,7 +49,11 @@ The data for mapping the Implementation Units (IUs) are from the [ESPEN data por
 ```{r angola-map}
 ang_shp <-
   read_sf(here('data', 'input', 'shp', 'ESPEN_IU_2020.shp')) %>%
-  filter(ADMIN0 == 'Angola')
+  dplyr::filter(ADMIN0 == 'Angola')
+
+# map_options <- north(ang_shp) +
+#   scalebar(ang_shp, dist = 250, dist_unit = "km",
+#            transform = TRUE, model = "WGS84")
 
 adm3_shp <-
   read_sf(here(
@@ -76,15 +83,15 @@ ang_map <- ggplot() +
     color = "red",
     size = 1.5,
     data = adm1_shp
-  ) +
-  north(ang_shp) +
-  scalebar(
-    ang_shp,
-    dist = 250,
-    dist_unit = "km",
-    transform = TRUE,
-    model = "WGS84"
-  )
+  ) 
+  # north(ang_shp) +
+  # scalebar(
+  #   ang_shp,
+  #   dist = 250,
+  #   dist_unit = "km",
+  #   transform = TRUE,
+  #   model = "WGS84"
+  # )
 
 ang_map
 rm(ang_map)
@@ -105,14 +112,14 @@ colnames(angola_oncho_point_df) = c("lon", "lat", "suitability")
 
 ang_raster_map <- ggplot(ang_shp) +
   geom_sf() +
-  geom_raster(data = angola_oncho_point_df, aes(lon, lat, fill = suitability), alpha = .7) +
+  geom_raster(data = angola_oncho_point_df, aes(lon, lat, fill = suitability/100), alpha = .7) +
   geom_sf(fill = "transparent", color = "black", size = 1.5, 
           data = adm1_shp) +
-  labs(fill='Environmental suitability') +
+  labs(fill='Environmental suitability', x='', y='') +
   theme(legend.position='top') +
   sc +
-  north(ang_shp) +
-  scalebar(ang_shp, dist = 250, dist_unit = "km",
+  ggsn::north(ang_shp) +
+  ggsn::scalebar(ang_shp, dist = 250, dist_unit = "km",
            transform = TRUE, model = "WGS84")
 
 ang_raster_map

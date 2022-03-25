@@ -126,14 +126,22 @@ saveRDS(commune_mapping_filter, here('data', 'output', 'commune_mapping_filter.R
 
 names(commune_join)
 
-commune_join %>% 
+df <- commune_join %>% 
+  filter(grepl('Unknown', Endemicity.x)) %>% 
+  mutate(prevaelence_cat=case_when(Prevalence==0 ~ '0',
+                                   (Prevalence>0 & Prevalence<0.05) ~ '>0 & <5',
+                                   Prevalence>=0.05 ~ '>=5')) %>% 
+  as_tibble() %>% filter(prevaelence_cat=='>=5' & Period=='2011 - 2016')
+  
+df %>% 
+tabyl(Period,prevaelence_cat,Method_2) 
   #filter(grepl('sumbe', adm2_en)) %>% 
-  ggplot() +
+  ggplot(.) +
   geom_sf(fill="red") +
-  geom_sf(data=adm1_shp,fill = "transparent", color = "black", size = 1.5)
-  geom_sf(data=commune_shp,
+  #geom_sf(data=adm1_shp,fill = "transparent", color = "black", size = 1.5)
+  geom_sf(
           #%>% filter(grepl('sumbe', adm2_en)),
-          fill = "transparent", color = "black", size = 1.5)
+          aes(fill = prevaelence_cat))
 
 commune_join %>% tabyl(Examined, Endemicity)
 

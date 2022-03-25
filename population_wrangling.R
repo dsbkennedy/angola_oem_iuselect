@@ -6,7 +6,7 @@ library(janitor)
 library(tidyverse)
 library(tidyxl)
 library(unpivotr)
-
+library(linelist)
 #https://medium.com/@samukweku/reshaping-an-excel-table-in-r-71d7d9020124
 
 #sourcefile
@@ -27,8 +27,8 @@ stage1 <- map(sheet_names, def)
 
 def_main <- function(datum){datum%>%
     select(sheet,row,col,data_type,character,numeric)%>%
-    #behead("NNE",years)%>%
-    behead("N",commune)%>%
+    behead("up",commune)%>%
+    #behead("N",commune)%>%
     fill(character, .direction = "down") %>% 
     filter(!is.na(commune))
   }#apply function to every tibble in stage1
