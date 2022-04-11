@@ -143,198 +143,198 @@ df <- commune_join %>%
 
 commune_join %>% tabyl(Examined, Endemicity)
 
-angola_oncho_dados_clean <- angola_oncho_dados_raw %>%
-  clean_data() %>%
-  filter(!is.na(latitude_decimal_degrees)) %>%
-  filter(!is.na(longitude_decimal_degrees)) %>%
-  mutate(
-    latitude_clean1 = str_replace(latitude_decimal_degrees, 's_|s', ''),
-    latitude_clean2 = str_replace(latitude_clean1, '^_', ''),
-    latitude_clean3 = as.numeric(str_replace(latitude_clean2, '_', '.')),
-    latitude_clean4 = case_when((latitude_clean3 > 10000) ~ latitude_clean3 /
-                                  10000,
-                                (latitude_clean3 > 1000 &
-                                   latitude_clean3 < 10000) ~ latitude_clean3 / 1000,
-                                TRUE ~ latitude_clean3
-    ),
-    latitude_final = case_when(
-      latitude_clean1 == '14239' ~ 14.239,
-      latitude_clean1 == '1268677' ~ 12.68677,
-      latitude_clean1 == '13038' ~ 13.038,
-      latitude_clean1 == '1096825' ~ 10.96825,
-      TRUE ~ latitude_clean4
-    ),
-    latitude_final=latitude_final*-1
-  ) %>%
-  mutate(
-    longitude_clean1 = str_replace(longitude_decimal_degrees, 'e_|e', ''),
-    longitude_clean2 = str_replace(longitude_clean1, '^_', ''),
-    longitude_clean3 = as.numeric(str_replace(longitude_clean2, '_', '.')),
-    longitude_final = case_when(
-      longitude_clean1 == '16534' ~ 16.534,
-      longitude_clean1 == '172639' ~ 17.2639,
-      longitude_clean1 == '1546165' ~ 15.46165,
-      longitude_clean1 == '153117' ~ 15.3117,
-      longitude_clean1 == '145117' ~ 14.5117,
-      longitude_clean1 == '145448' ~ 14.5448,
-      TRUE ~ longitude_clean3
-    )
-  ) %>%
-  select(-contains('_clean')) %>% 
-  st_as_sf(., coords = c("longitude_final", "latitude_final"),
-           crs= 4326)
-
-commune_survey_data <- commune_join %>% 
-  as_tibble() %>% 
-  #filter(Method_1=='Parasitological') %>% 
-  group_by(adm1_en, adm2_en, adm3_en) %>% 
-  filter(SurveyYear==max(SurveyYear, na.rm=TRUE)) %>% 
-  filter(Examined==max(Examined, na.rm=TRUE)) %>% 
-  filter(Prevalence==max(Prevalence, na.rm=TRUE)) %>% 
-  distinct(SurveyYear,Examined,Positive,Prevalence,DiagnosticMethod=Method_1) %>% 
-  select(DiagnosticMethod,SurveyYear,Examined,Positive, Prevalence)
-
-saveRDS(commune_survey_data, here('data', 'output', 'commune_survey_data.Rds'))
-
-
-angola_oncho_dados_clean %>% 
-  #filter(name_of_administrative_level_2_implementation_unit=="camacupa") %>% 
-  ggplot() + 
-  #geom_point(aes(x=longitude_final, y=latitude_final))
-  geom_sf(aes(color = name_of_administrative_level_1_state_province_region), show.legend = "point") +
-  geom_sf(fill = "transparent", color = "black", size = .1,
-          data = adm1_shp) +
-  theme(legend.position="none") +
-  facet_wrap(~name_of_administrative_level_1_state_province_region )
-
-
-province_join <- st_join(angola_oncho_dados_clean, adm1_shp)
-iu_join <- st_join(angola_oncho_dados_clean, ang_shp)
-commune_join <- st_join(angola_oncho_dados_clean, commune_shp)
-
-
-province_join %>% 
-  as_tibble() %>% 
-  group_by(adm1_en,year_of_mapping) %>% 
-  summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
-            total_positive=sum(number_of_people_positive_16, na.rm=TRUE)) %>% 
-  mutate(positive=total_positive/total_examined) %>% 
-  left_join(adm1_shp,., by=c('adm1_en'))  %>% 
-  ggplot() +
-  geom_sf(aes(fill="positive")) +
-  facet_wrap(~year_of_mapping )
-
-iu_join %>% as_tibble() %>% 
-  group_by(ADMIN1, ADMIN2,year_of_mapping) %>% 
-  summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
-            total_positive=sum(number_of_people_positive_16, na.rm=TRUE))
-
-commune_prevalence <- commune_join %>% as_tibble() %>% 
-  group_by(adm1_en, adm2_en,adm3_en,year_of_mapping, .drop = FALSE) %>% 
-  summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
-            total_positive=sum(number_of_people_positive_16, na.rm=TRUE)) %>% 
-  mutate(positive=total_positive/total_examined) %>% 
-  select(-c(contains('total'))) %>% 
-  inner_join(commune_shp_linked, by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
-  left_join(oncho_loa_loa_lf_data, by=c('iu_id' = 'IU_ID'))
-
-x <- commune_prevalence %>% as_tibble() %>% 
-  group_by(Endemicity,year_of_mapping) %>% 
-  summarise(average_positive=mean(positive,na.rm=TRUE))
-
-x <- commune_prevalence %>% as_tibble() %>% filter(year_of_mapping==2015) %>% 
-  group_by(adm1_en, adm2_en,adm3_en) %>% 
-  summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
-            total_positive=sum(number_of_people_positive_16, na.rm=TRUE))
-
-# check if 2015 endemicity data is correct 
-
-
-commune_no_survey <- commune_prevalence %>% 
-  distinct(adm1_en, adm2_en,adm3_en) %>% 
-  mutate(no_surveys=1)
-
-commune_prevalence %>% ggplot() +
-  geom_point(aes(x=year_of_mapping, y=positivity)) +
-  stat_summary(fun.data = "mean_cl_normal",
-               geom = "errorbar",
-               width = .4) +
-  stat_summary(fun = "mean", geom = "point")
-
-
-nosurvey <- commune_shp %>% 
-  anti_join(commune_prevalence, by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
-  as_tibble() %>% 
-  distinct(adm1_en, adm2_en,adm3_en) %>% 
-  mutate(no_surveys=1)
-
-angola_commune_oncho_noloaloa_over71 %>% 
-  inner_join(nosurvey,by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
-  ggplot() +
-  geom_sf(aes(fill = propover71)) +
-  geom_sf(fill = "transparent", color = "black", size = 1.5,
-          data = adm1_shp) +
-  labs(fill="% of pixels (5x5km) in a commune exceeding environmental threshold >=0.71") +
-  theme(legend.position = "top") +
-  scale_fill_viridis_c(option = "magma", begin=0, end=1)
-
-
-angola_commune_oncho_noloaloa_over71 %>% inner_join(nosurvey,by=c('adm1_en', 'adm2_en','adm3_en'))
-  
-
-commune_shp %>% 
-  anti_join(commune_prevalence, by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
-  ggplot() + 
-  #geom_point(aes(x=longitude_final, y=latitude_final))
-  geom_sf()
-
-head(province_join)
-names(province_join)
- 
-
-df!
-
-df2 <- df1 %>% filter(!between(latitude_final, 4, 18) ) %>% 
-  mutaet(latit)
-
-  arrange(desc(latitude_final))
-
-  mutate(prevalence=number_of_people_positive_16/number_of_people_examined_14) %>% 
-  #mutate(prevalence=as.numeric(percent_positive_17)) 
-  mutate(latitude_clean=ifelse(latitude_clean<0,latitude_clean*-1,latitude_clean)) %>% 
-  filter(latitude_clean <18 & latitude_clean>4) %>% 
-  mutate(latitude_clean=latitude_clean*-1) %>% 
-  st_as_sf(., coords = c("longitude_clean", "latitude_clean"),
-           crs= ang_crs, agr = "constant")
-
-
-
-joined <- st_join(angola_oncho_dados_clean, ang_shp)
-
-st_is_longlat(angola_oncho_dados_clean)
-
-angola_geo = st_set_crs(angola_oncho_dados_clean, 4326)
-st_is_longlat(angola_geo)
-
-st_distance(ang_shp, angola_geo)
-
-angola_oncho_dados_clean %>% 
-  #filter(name_of_administrative_level_2_implementation_unit=="Huambo") %>% 
-ggplot() + 
-  #geom_point(aes(x=longitude_clean, y=latitude_clean))
-  geom_sf(aes(color = prevalence), show.legend = "point") +
-  geom_sf(fill = "transparent", color = "black", size = .1,
-          data = ang_shp) 
-
-
-ggplot() + 
-  geom_sf(fill = "transparent", color = "black", size = .1,
-          data = ang_shp)
-  #geom_sf(data = angola_oncho_dados_clean, aes(size = prevalence), color = "black", show.legend = "point")
-
-
-  
-library(sp)
-coordinates(angola_oncho_dados_clean) <- c('longitude_clean', 'latitude_clean') #this is the line which answers the question.
-proj4string(angola_oncho_dados_clean) <- CRS("+init=epsg:4326")
-str(angola_oncho_dados_clean)
+# angola_oncho_dados_clean <- angola_oncho_dados_raw %>%
+#   clean_data() %>%
+#   filter(!is.na(latitude_decimal_degrees)) %>%
+#   filter(!is.na(longitude_decimal_degrees)) %>%
+#   mutate(
+#     latitude_clean1 = str_replace(latitude_decimal_degrees, 's_|s', ''),
+#     latitude_clean2 = str_replace(latitude_clean1, '^_', ''),
+#     latitude_clean3 = as.numeric(str_replace(latitude_clean2, '_', '.')),
+#     latitude_clean4 = case_when((latitude_clean3 > 10000) ~ latitude_clean3 /
+#                                   10000,
+#                                 (latitude_clean3 > 1000 &
+#                                    latitude_clean3 < 10000) ~ latitude_clean3 / 1000,
+#                                 TRUE ~ latitude_clean3
+#     ),
+#     latitude_final = case_when(
+#       latitude_clean1 == '14239' ~ 14.239,
+#       latitude_clean1 == '1268677' ~ 12.68677,
+#       latitude_clean1 == '13038' ~ 13.038,
+#       latitude_clean1 == '1096825' ~ 10.96825,
+#       TRUE ~ latitude_clean4
+#     ),
+#     latitude_final=latitude_final*-1
+#   ) %>%
+#   mutate(
+#     longitude_clean1 = str_replace(longitude_decimal_degrees, 'e_|e', ''),
+#     longitude_clean2 = str_replace(longitude_clean1, '^_', ''),
+#     longitude_clean3 = as.numeric(str_replace(longitude_clean2, '_', '.')),
+#     longitude_final = case_when(
+#       longitude_clean1 == '16534' ~ 16.534,
+#       longitude_clean1 == '172639' ~ 17.2639,
+#       longitude_clean1 == '1546165' ~ 15.46165,
+#       longitude_clean1 == '153117' ~ 15.3117,
+#       longitude_clean1 == '145117' ~ 14.5117,
+#       longitude_clean1 == '145448' ~ 14.5448,
+#       TRUE ~ longitude_clean3
+#     )
+#   ) %>%
+#   select(-contains('_clean')) %>% 
+#   st_as_sf(., coords = c("longitude_final", "latitude_final"),
+#            crs= 4326)
+# 
+# commune_survey_data <- commune_join %>% 
+#   as_tibble() %>% 
+#   #filter(Method_1=='Parasitological') %>% 
+#   group_by(adm1_en, adm2_en, adm3_en) %>% 
+#   filter(SurveyYear==max(SurveyYear, na.rm=TRUE)) %>% 
+#   filter(Examined==max(Examined, na.rm=TRUE)) %>% 
+#   filter(Prevalence==max(Prevalence, na.rm=TRUE)) %>% 
+#   distinct(SurveyYear,Examined,Positive,Prevalence,DiagnosticMethod=Method_1) %>% 
+#   select(DiagnosticMethod,SurveyYear,Examined,Positive, Prevalence)
+# 
+# saveRDS(commune_survey_data, here('data', 'output', 'commune_survey_data.Rds'))
+# 
+# 
+# angola_oncho_dados_clean %>% 
+#   #filter(name_of_administrative_level_2_implementation_unit=="camacupa") %>% 
+#   ggplot() + 
+#   #geom_point(aes(x=longitude_final, y=latitude_final))
+#   geom_sf(aes(color = name_of_administrative_level_1_state_province_region), show.legend = "point") +
+#   geom_sf(fill = "transparent", color = "black", size = .1,
+#           data = adm1_shp) +
+#   theme(legend.position="none") +
+#   facet_wrap(~name_of_administrative_level_1_state_province_region )
+# 
+# 
+# province_join <- st_join(angola_oncho_dados_clean, adm1_shp)
+# iu_join <- st_join(angola_oncho_dados_clean, ang_shp)
+# commune_join <- st_join(angola_oncho_dados_clean, commune_shp)
+# 
+# 
+# province_join %>% 
+#   as_tibble() %>% 
+#   group_by(adm1_en,year_of_mapping) %>% 
+#   summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
+#             total_positive=sum(number_of_people_positive_16, na.rm=TRUE)) %>% 
+#   mutate(positive=total_positive/total_examined) %>% 
+#   left_join(adm1_shp,., by=c('adm1_en'))  %>% 
+#   ggplot() +
+#   geom_sf(aes(fill="positive")) +
+#   facet_wrap(~year_of_mapping )
+# 
+# iu_join %>% as_tibble() %>% 
+#   group_by(ADMIN1, ADMIN2,year_of_mapping) %>% 
+#   summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
+#             total_positive=sum(number_of_people_positive_16, na.rm=TRUE))
+# 
+# commune_prevalence <- commune_join %>% as_tibble() %>% 
+#   group_by(adm1_en, adm2_en,adm3_en,year_of_mapping, .drop = FALSE) %>% 
+#   summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
+#             total_positive=sum(number_of_people_positive_16, na.rm=TRUE)) %>% 
+#   mutate(positive=total_positive/total_examined) %>% 
+#   select(-c(contains('total'))) %>% 
+#   inner_join(commune_shp_linked, by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
+#   left_join(oncho_loa_loa_lf_data, by=c('iu_id' = 'IU_ID'))
+# 
+# x <- commune_prevalence %>% as_tibble() %>% 
+#   group_by(Endemicity,year_of_mapping) %>% 
+#   summarise(average_positive=mean(positive,na.rm=TRUE))
+# 
+# x <- commune_prevalence %>% as_tibble() %>% filter(year_of_mapping==2015) %>% 
+#   group_by(adm1_en, adm2_en,adm3_en) %>% 
+#   summarise(total_examined=sum(number_of_people_examined_14, na.rm=TRUE),
+#             total_positive=sum(number_of_people_positive_16, na.rm=TRUE))
+# 
+# # check if 2015 endemicity data is correct 
+# 
+# 
+# commune_no_survey <- commune_prevalence %>% 
+#   distinct(adm1_en, adm2_en,adm3_en) %>% 
+#   mutate(no_surveys=1)
+# 
+# commune_prevalence %>% ggplot() +
+#   geom_point(aes(x=year_of_mapping, y=positivity)) +
+#   stat_summary(fun.data = "mean_cl_normal",
+#                geom = "errorbar",
+#                width = .4) +
+#   stat_summary(fun = "mean", geom = "point")
+# 
+# 
+# nosurvey <- commune_shp %>% 
+#   anti_join(commune_prevalence, by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
+#   as_tibble() %>% 
+#   distinct(adm1_en, adm2_en,adm3_en) %>% 
+#   mutate(no_surveys=1)
+# 
+# angola_commune_oncho_noloaloa_over71 %>% 
+#   inner_join(nosurvey,by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
+#   ggplot() +
+#   geom_sf(aes(fill = propover71)) +
+#   geom_sf(fill = "transparent", color = "black", size = 1.5,
+#           data = adm1_shp) +
+#   labs(fill="% of pixels (5x5km) in a commune exceeding environmental threshold >=0.71") +
+#   theme(legend.position = "top") +
+#   scale_fill_viridis_c(option = "magma", begin=0, end=1)
+# 
+# 
+# angola_commune_oncho_noloaloa_over71 %>% inner_join(nosurvey,by=c('adm1_en', 'adm2_en','adm3_en'))
+#   
+# 
+# commune_shp %>% 
+#   anti_join(commune_prevalence, by=c('adm1_en', 'adm2_en','adm3_en')) %>% 
+#   ggplot() + 
+#   #geom_point(aes(x=longitude_final, y=latitude_final))
+#   geom_sf()
+# 
+# head(province_join)
+# names(province_join)
+#  
+# 
+# df!
+# 
+# df2 <- df1 %>% filter(!between(latitude_final, 4, 18) ) %>% 
+#   mutaet(latit)
+# 
+#   arrange(desc(latitude_final))
+# 
+#   mutate(prevalence=number_of_people_positive_16/number_of_people_examined_14) %>% 
+#   #mutate(prevalence=as.numeric(percent_positive_17)) 
+#   mutate(latitude_clean=ifelse(latitude_clean<0,latitude_clean*-1,latitude_clean)) %>% 
+#   filter(latitude_clean <18 & latitude_clean>4) %>% 
+#   mutate(latitude_clean=latitude_clean*-1) %>% 
+#   st_as_sf(., coords = c("longitude_clean", "latitude_clean"),
+#            crs= ang_crs, agr = "constant")
+# 
+# 
+# 
+# joined <- st_join(angola_oncho_dados_clean, ang_shp)
+# 
+# st_is_longlat(angola_oncho_dados_clean)
+# 
+# angola_geo = st_set_crs(angola_oncho_dados_clean, 4326)
+# st_is_longlat(angola_geo)
+# 
+# st_distance(ang_shp, angola_geo)
+# 
+# angola_oncho_dados_clean %>% 
+#   #filter(name_of_administrative_level_2_implementation_unit=="Huambo") %>% 
+# ggplot() + 
+#   #geom_point(aes(x=longitude_clean, y=latitude_clean))
+#   geom_sf(aes(color = prevalence), show.legend = "point") +
+#   geom_sf(fill = "transparent", color = "black", size = .1,
+#           data = ang_shp) 
+# 
+# 
+# ggplot() + 
+#   geom_sf(fill = "transparent", color = "black", size = .1,
+#           data = ang_shp)
+#   #geom_sf(data = angola_oncho_dados_clean, aes(size = prevalence), color = "black", show.legend = "point")
+# 
+# 
+#   
+# library(sp)
+# coordinates(angola_oncho_dados_clean) <- c('longitude_clean', 'latitude_clean') #this is the line which answers the question.
+# proj4string(angola_oncho_dados_clean) <- CRS("+init=epsg:4326")
+# str(angola_oncho_dados_clean)
