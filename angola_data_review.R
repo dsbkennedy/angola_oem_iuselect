@@ -130,11 +130,9 @@ df <- commune_join %>%
   filter(grepl('Unknown', Endemicity.x)) %>% 
   mutate(prevaelence_cat=case_when(Prevalence==0 ~ '0',
                                    (Prevalence>0 & Prevalence<0.05) ~ '>0 & <5',
-                                   Prevalence>=0.05 ~ '>=5')) %>% 
-  as_tibble() %>% filter(prevaelence_cat=='>=5' & Period=='2011 - 2016')
-  
-df %>% 
-tabyl(Period,prevaelence_cat,Method_2) 
+                                   Prevalence>=0.05 ~ ' >=5')) %>% 
+  as_tibble() 
+  tabyl(Period,prevaelence_cat) 
   #filter(grepl('sumbe', adm2_en)) %>% 
   ggplot(.) +
   geom_sf(fill="red") +

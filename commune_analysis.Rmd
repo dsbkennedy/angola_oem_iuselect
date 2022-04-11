@@ -123,7 +123,8 @@ length(unique(unknown_commune_shp$adm3_en))
 iu_commune_map_labels <- adm1_shp %>%
   ggplot() +
   geom_sf(fill = "transparent", color = "black", size = 1.5) +
-  geom_sf_label(aes(label = adm1_en))
+  geom_sf_label(aes(label = adm1_en)) +
+  theme_minimal()
 
 iu_commune_map_labels
 
@@ -466,6 +467,212 @@ oem_map_cat_map <- oem_map_cat_df %>%
 oem_map_cat_map
 
 ```
+
+```{r}
+(list.files(here('data', 'input', 'oncho_incidence'), full.names=T, recursive=T) %>%
+    keep(~ str_detect(.x, '.xls')) %>%
+    map_dfr(~ readxl::read_xls(.x) %>% mutate(province = .x) %>% 
+              mutate(province= str_replace(
+                province, 
+                "/Users/DK_kirby/Library/CloudStorage/OneDrive-UNSW/analysis/angola_oem_iuselect/data/input/oncho_incidence/", 
+                "")) %>% 
+              clean_names)
+     ->
+    incidence_raw)
+
+incidence_clean <- incidence_raw %>% 
+  mutate(new = coalesce(!!! select(., contains("provincia")))) %>% 
+  mutate(municipality=coalesce(organisationunitname, new)) %>% 
+  select(-c(organisationunitname, new, contains('provincia'))) %>% 
+  filter(!province=='ANUAL-2017.xls') %>% 
+  mutate(province= str_replace(
+    province, 
+    ".xls", 
+    "")) %>% 
+  clean_data() %>% 
+  select(province, municipality, everything()) %>% 
+  mutate(province = case_when ( province=="benguela222" ~ 'huila', 
+                                 TRUE ~ province)) %>% 
+  pivot_longer(
+    -c(province, municipality)) %>% 
+  mutate(
+    year = str_replace(name, 'ne_onconcercose_casos_filariosis_ocular_', '')) %>% 
+  mutate(
+    municipality = str_replace(municipality, 'municipio_de_', '')) %>%
+  mutate(province = case_when(province=='c_norte' ~ 'cuanza_norte', 
+                              province=='c_sul' ~ 'cuanza_sul', 
+                              province=='l_norte' ~ 'lunda_norte', 
+                              
+                              TRUE ~ province)) %>% 
+  select(-name) 
+
+data_clean %>% 
+  ggplot(aes(x=year, y=value, color=municipality)) +
+  geom_point() +
+  theme(legend.position = "none") +
+  facet_wrap(~province)
+
+
+# Municipality level populations
+
+
+#https://medium.com/@samukweku/reshaping-an-excel-table-in-r-71d7d9020124
+
+#sourcefile
+filename <- here('data/input/Estimativas_Comunais_Geral_Final.xlsx')
+#get list of sheet_names
+#which also represents the company names
+sheet_names <- xlsx_sheet_names(filename)#read in file, using the tidyxl package
+#filter for only character and numeric
+#and pick specific rows and columns
+def <- function(sheetname){xlsx_cells(filename,sheetname)%>%
+    filter(data_type %in% c("character","numeric"), 
+           row >=5, 
+           col >=1)}
+#stage1
+#apply function to sheetnames
+#using the purrr library
+stage1 <- map(sheet_names, def)
+
+def_main <- function(datum){datum%>%
+    select(sheet,row,col,data_type,character,numeric)%>%
+    #behead("NNE",years)%>%
+    behead("NNE",commune)%>%
+    fill(character, .direction = "down") %>% 
+    filter(!is.na(commune))
+}#apply function to every tibble in stage1
+stage2 <- map(stage1,def_main)
+
+municpality_population <- stage2  %>% 
+  bind_rows(.id="province") %>% 
+  select(province=sheet, municipality=commune, population=numeric)  %>% 
+  filter(!is.na(population)) %>% 
+  group_by(province, municipality) %>% 
+  slice(which.max(population))  %>% 
+  clean_data() %>% 
+  filter(!municipality %in% c('talatona')) %>% 
+  mutate(municipality= case_when(municipality=='quilombo_dos_dembos' ~ 'gonguembo', 
+                                 municipality=='lumbala_nguimbo' ~ 'bundas',
+                                 municipality=='muxima' ~ 'quicama',
+                                 municipality=='cazombo' ~ 'alto_zambeze',
+                                 municipality=='ambaca_ex_camabatela' ~ 'ambaca',
+                                 municipality=='ndalatando' ~ 'cazengo',
+                                 municipality=='omukolongonjo' ~ 'cuvelai',
+                                 municipality=='catete' ~ 'icolo_e_bengo',
+                                 municipality=='quinzala' ~ 'mucaba', 
+                                 municipality=='benfica' ~ 'talatona', 
+                                 
+                                 TRUE ~ municipality))
+
+
+incidence_pop_merge <- incidence_clean %>%   mutate(municipality=case_when(municipality=='ambaca_ex_camabatela' ~ 'ambaca', 
+                                                    municipality=='malange' ~ 'malanje', 
+                                                    municipality=='tchicala_tcholohanga' ~ 'tchikala_tcholohanga', 
+                                                    municipality=='quibala' ~ 'kibala', 
+                                                    municipality=='sumbe' ~ 'sumbe_sede', 
+                                                    municipality=='belas' ~ 'futungo_de_belas', 
+                                                    municipality=='kilamba_kiaxi' ~ 'kilamba', 
+                                                    municipality=='kiwaba_nzogi' ~ 'kiwaba_n_zogi',
+                                                    municipality=='quirima' ~ 'kirima',
+                                                    municipality=='cela' ~ 'cela_ex_waku_kungo',
+                                                    municipality=='lumeje_cameia' ~ 'cameia',
+                                                    TRUE ~ municipality)) %>% 
+  left_join(municpality_population, by=c('province', 'municipality')) %>% 
+  filter(!value>1000) %>% 
+  mutate(incidence_per100k=(value/population)*100000) %>% 
+  mutate(municipality=case_when(municipality== 'cela_ex_waku_kungo' ~ 'cela_waku_kungo', 
+                                municipality== 'quicama' ~ 'quissama_muxima_quicama', 
+                                municipality== 'kiwaba_n_zogi' ~ 'kiuaba_n_zoji_cuaba_nzogo', 
+                                municipality== 'kuimba' ~ 'cuimba', 
+                                TRUE ~ municipality))
+
+
+province_incidence <- incidence_pop_merge %>% 
+  group_by(year, province) %>% 
+  summarise(province_incidence=sum(value, na.rm=TRUE),
+      province_population=sum(population,na.rm=TRUE)) %>% 
+  mutate(province_incidence_per100k=(province_incidence/province_population)*100000)
+
+municipality_incidence <- incidence_pop_merge %>% 
+  group_by(year, province,municipality) %>% 
+  summarise(municipality_incidence=sum(value, na.rm=TRUE),
+            municpality_population=sum(population,na.rm=TRUE)) %>% 
+  mutate(municipality_incidence_per100k=(municipality_incidence/municpality_population)*100000) 
+
+case_reported <- municipality_incidence %>% 
+  filter(municipality_incidence>0) %>% 
+  ungroup() %>% 
+  distinct(province, municipality) %>% 
+  mutate(case_reported='YES')
+
+
+final_table <- angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% 
+  select(province=adm1_en, municipality=adm2_en, commune=adm3_en, population, Endemicity )
+
+df1 <- angola_commune_oncho_collapse %>% as_tibble() %>% 
+  select( "adm1_pcode","adm2_pcode","adm3_pcode","oncho_mean_aw" )
+
+df2 <- angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% 
+  select("adm1_pcode","adm2_pcode","adm3_pcode","adm1_en","adm2_en","adm3_en",propover71,total_pop, Endemicity )
+
+df3 <- neighbour_endemic_area %>% as_tibble() %>% select(adm1_en, adm2_en, adm3_en) %>% mutate(neighbours_endemic_iu='Yes')
+
+commune_survey_data <- readRDS(here('data','output','commune_survey_data.Rds')) %>% 
+  group_by(adm1_en, adm2_en, adm3_en) %>% 
+  filter(SurveyYear==max(SurveyYear))
+        
+df2_merge_df3 <- df2 %>% left_join(df3, by=c("adm1_en","adm2_en","adm3_en")) %>% 
+  left_join(commune_survey_data, by=c("adm1_en","adm2_en","adm3_en"))
+
+df_merge <- df2_merge_df3 %>% left_join(df1, by=c("adm1_pcode","adm2_pcode","adm3_pcode")) %>% 
+  mutate(lf_treatment=case_when(grepl('lf', Endemicity, ignore.case=T) ~ 'Yes')) %>% 
+  left_join(case_reported, by=c('adm1_en'='province', 'adm2_en'='municipality')) %>% 
+  arrange(adm1_en, adm2_en) %>% 
+  mutate(propover71=propover71/100,
+         oncho_mean_aw=oncho_mean_aw/100,
+         total_pop=total_pop/1000
+         )
+
+env_rank_df <- df_merge %>% 
+  mutate(env_rank=dense_rank(desc(oncho_mean_aw))) %>% 
+  filter(env_rank<=50)
+  
+prop_rank_df <- df_merge %>% 
+  mutate(prop_rank=dense_rank(desc(propover71))) %>% 
+  filter(prop_rank<=50)
+
+prev_rank_df <- df_merge %>% 
+  filter(Prevalence>0) %>% 
+  mutate(prev_rank=dense_rank(desc(Prevalence))) %>% 
+  filter(prev_rank<=50)
+
+longlist <- angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% pull(adm3_pcode)
+
+shortlist <- env_rank_df %>% bind_rows(prop_rank_df,prev_rank_df) %>% 
+  count(adm1_en, adm2_en,adm3_en,adm3_pcode) %>% 
+  #count(adm1_pcode, adm2_pcode, adm3_pcode) %>% 
+  filter(n==3) %>% 
+  pull(adm3_pcode)
+
+high_ranking_map <- commune_shp %>% 
+  mutate(list_cat=case_when((adm3_pcode %in% longlist & !adm3_pcode %in% shortlist)~ "Longlist",
+                            adm3_pcode %in% shortlist ~ 'Shortlist')) %>% 
+  filter(!is.na(list_cat)) %>% 
+  ggplot(data=.) +
+  geom_sf(aes(fill=list_cat), size = 0.5, linetype="dotted", size=0.7) +
+  # geom_sf(fill = "transparent", color = "dark grey", size = 1.2,
+  #         data=iu_shp %>% st_simplify()) +
+  geom_sf(fill = "transparent", color = "black", size = 2.5,
+          data=adm1_shp %>% st_simplify()) +
+  labs(fill='', title='Identifying priority areas for onchocercisis elimination mapping in Angola',
+       subtitle='Borders: Thick black line = Province, Thin grey line = Municipality, Dashed line = Commune ') +
+  theme(legend.position = 'top') +
+  theme_minimal() 
+
+high_ranking_map
+```
+
+
 
 ```{r joining-questionnaire-data, eval=FALSE, include=FALSE}
 # library(openxlsx)
