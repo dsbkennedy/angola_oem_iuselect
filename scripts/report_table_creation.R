@@ -159,7 +159,10 @@ full_table <- df_merge %>%
   mutate(province=gsub("_", " ", province)) %>% 
   mutate(municipality=gsub("_", " ", municipality)) %>% 
   mutate(commune=gsub("_", " ", commune)) %>% 
-  arrange(desc(env_suit,propover71,neighbours_endemic_iu))
+  arrange(desc(env_suit),desc(propover71),desc(neighbours_endemic_iu))
+
+saveRDS(full_table, here('tables', 'full_table.Rds'))
+
 
 write_csv(full_table, here('data', 'output', 'full_table.csv'))
 

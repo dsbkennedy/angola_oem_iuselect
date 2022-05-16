@@ -14,6 +14,7 @@ import_iu_shapefile <- function(iu_shp) {
   return(iu_shp)
 }
 iu_shp <- import_iu_shapefile()
+crs_shp <- st_crs(iu_shp)
 
 collapse_country_shapefile <- function(ang_shp) {
   ang_shp <- iu_shp %>%
@@ -93,6 +94,9 @@ river_processing <- function(data, ADMIN2) {
     select(width, Reach_type, geometry , red_hydr_class) %>%
     st_as_sf()
   
+  oncho_site_data <- read.csv(here('data/input/espen_platform_oncho_sitelevel.csv')) %>% 
+    st_as_sf(coords=c('Longitude', 'Latitude'), crs=crs_shp)
+  
   province_river_map <- ggplot(data = data) +
     geom_sf(fill = "#FFFFFF", color = "#AAAAAA") +
     geom_sf(data = rivers_plot, aes(
@@ -100,6 +104,11 @@ river_processing <- function(data, ADMIN2) {
       size = width,
       alpha = factor(red_hydr_class)
     )) +
+    geom_point(data=huambo_sf,
+               aes(geometry=geometry),
+               #aes(color = SID74, size = AREA, geometry = geometry),
+               stat = "sf_coordinates"
+    ) +
     #ggtitle(glue("Number of Cylinder: {.y}")) +
     scale_size_continuous(range = c(0, 0.3)) +
     scale_alpha_manual(values = c(
@@ -115,12 +124,74 @@ river_processing <- function(data, ADMIN2) {
 
 }
 
+
 library(furrr)
 library(glue)
 plan(multisession)
 x <- iu_shp %>% 
-  filter(ADMIN1 %in% c('Bengo', "Huambo")) %>% 
+  filter(ADMIN1 %in% c( "Huambo")) %>% 
   group_nest(ADMIN2) %>% 
   mutate(river_map=future_map(data, river_processing))
 
+huambo_shp <- iu_shp %>% filter(ADMIN2 == 'Huambo')
+osm_rivers_shp <- st_read(here('data', 'input', 'osm_rivers.shp'))
+
+huambo_river <- sf::st_crop(osm_rivers_shp, huambo_shp)
+oncho_site_data <- read.csv(here('data/input/espen_platform_oncho_sitelevel.csv'))
+huambo_site_data <- oncho_site_data %>% filter(ADMIN2_NAME=='Huambo')
+huambo_sf <- oncho_site_data %>% st_as_sf(coords=c('Longitude', 'Latitude'), crs=crs_shp)
+
+ggplot(data = iu_shp) +
+  geom_sf(fill = "#FFFFFF", color = "#AAAAAA") +
+  geom_point(data=huambo_sf,
+             aes(geometry=geometry),
+    #aes(color = SID74, size = AREA, geometry = geometry),
+    stat = "sf_coordinates"
+  ) +
+  geom_sf(data = osm_rivers_shp %>% filter(name=='Congo'), aes(color=name
+                                                               # color = factor(Reach_type),
+                                                               # size = width,
+                                                               #alpha = factor(red_hydr_class)
+  )) +
+  theme_minimal() + 
+  theme(legend.position = "none", panel.grid = element_blank())
+
+
+# all_rivers <- osm_rivers_shp %>% 
+#   rename(river_name=name) %>% 
+#   filter(!is.na(river_name)) %>% 
+#  # filter(name=='Congo') %>% 
+#   group_by(river_name) %>% 
+#   summarize(geometry = st_union(geometry))
+# 
+# saveRDS(all_rivers, here('data', 'input', 'angola_rivers_line.Rds'))
+
+all_rivers <- readRDS(here('data', 'input', 'angola_rivers_line.Rds'))
+
+# iu_river_intersect <- st_intersection(iu_shp, all_rivers)
+# saveRDS(iu_river_intersect, here('data', 'input', 'iu_river.Rds'))
+iu_river_intersect <- readRDS(here('data', 'input', 'iu_river.Rds'))
+
+# river_iu_intersect <- st_intersection(all_rivers,iu_shp)
+# saveRDS(river_iu_intersect, here('data', 'input', 'river_iu.Rds'))
+river_iu_intersect <- readRDS(here('data', 'input', 'river_iu.Rds'))
+
+huambo_river <- river_iu_intersect %>% filter(ADMIN2 == 'Huambo')
+
+ggplot() +
+  geom_sf(data=huambo_river, aes(label=river_name))
+
+river_length <- all_rivers %>% 
+  #filter(river_name=='Andaa') %>% 
+  mutate(length=st_length(geometry))
+
+
+  
+ggplot() +
+  geom_sf(data = iu_shp,fill = "#FFFFFF", color = "#AAAAAA") +
+  geom_sf(data=all_rivers)
+
+
+
+int_river_shp %>% filter(ADMIN2=='Huambo')
 
