@@ -126,7 +126,8 @@ iu_loaloa_endemicity_tbl <- oncho_loa_loa_lf_data %>%
 saveRDS(iu_loaloa_endemicity_tbl, here('tables', 'iu_loaloa_endemicity_tbl.Rds'))
 
 iu_lf_endemicity_tbl <- oncho_loa_loa_lf_data %>%   
-  filter(grepl('Unknown', Endemicity)) %>% mutate(endemicity_upd="Unknown") %>% 
+  filter(grepl('Unknown', Endemicity)) %>% 
+  mutate(endemicity_upd="Unknown") %>% 
   tabyl(endemicity_upd, lf_status) %>% 
      # adorn_totals(c("row", "col")) %>%
   adorn_percentages("row") %>%
@@ -270,9 +271,11 @@ neighbors <- st_touches(polygon_endemicity_shp) %>%
 polygon_endemicity_neighbours_shp <- polygon_endemicity_shp %>% 
   left_join(neighbors, by='polygon_id')
 
-endemic_poly <- polygon_endemicity_neighbours_shp %>% filter(grepl('Endemic', endemicity_bin)) %>% pull(polygon_id)
+endemic_poly <- polygon_endemicity_neighbours_shp %>% 
+  filter(grepl('Endemic', endemicity_bin)) %>% pull(polygon_id)
   
-endemic_neighbour <- polygon_endemicity_neighbours_shp %>% filter(grepl('Endemic', endemicity_bin)) %>% 
+endemic_neighbour <- polygon_endemicity_neighbours_shp %>% 
+  filter(grepl('Endemic', endemicity_bin)) %>% 
   as_tibble() %>% 
   select(polygon_id, starts_with('poly_neighbour')) %>% 
   pivot_longer(-polygon_id) %>% 
@@ -401,152 +404,195 @@ Check environmental suitability by Loa loa endemicity
 ```
 
 ```{r env-suit-threshold}
-angola_commune_oncho_noloaloa_over71<- setDT(angola_commune_oncho)[
-  loaloa_status == "Non-endemic"] %>%  
-  mutate(over71=case_when(value>=71 ~ 1, 
-                          TRUE ~ 0)) %>% 
-  count(adm1_en, adm2_en, adm3_en,over71) %>% 
-  group_by(adm1_en, adm2_en, adm3_en) %>% 
-  mutate(propover71=100*(n/sum(n))) %>% 
-  filter(over71==1) %>% 
-  #summarise(total_over71=sum(over71)) %>% 
-  merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
+
+angola_commune_oncho_loaloa_over71 <-
+  setDT(angola_commune_oncho) %>%
+  mutate(over71 = case_when(value >= 71 ~ 1,
+                            TRUE ~ 0)) %>%
+  count(adm1_en, adm2_en, adm3_en, over71) %>%
+  group_by(adm1_en, adm2_en, adm3_en) %>%
+  mutate(propover71 = 100 * (n / sum(n))) %>%
+  filter(over71 == 1) %>%
+  merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en', 'adm3_en')) %>%
   st_as_sf()
 
-commune_mapping_filter <- readRDS(here('data', 'output', 'commune_mapping_filter.Rds')) %>% 
-  mutate(prev_mapping=1)
 
-angola_commune_oncho_noloaloa_over71 %>% left_join(commune_mapping_filter, by=c('adm2_pcode', 'adm3_pcode'))
+angola_commune_oncho_noloaloa_over71 <-
+  setDT(angola_commune_oncho)[loaloa_status == 'Non-endemic'] %>%
+  mutate(over71 = case_when(value >= 71 ~ 1,
+                            TRUE ~ 0)) %>%
+  count(adm1_en, adm2_en, adm3_en, over71) %>%
+  group_by(adm1_en, adm2_en, adm3_en) %>%
+  mutate(propover71 = 100 * (n / sum(n))) %>%
+  filter(over71 == 1) %>%
+  merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en', 'adm3_en')) %>%
+  st_as_sf()
 
-angola_commune_oncho_noloaloa_over71_map <- angola_commune_oncho_noloaloa_over71 %>% 
-  ggplot() +
-  geom_sf(aes(fill = propover71)) +
-     geom_sf(fill = "transparent", color = "black", size = 1.5,
-          data = adm1_shp) +
-     labs(fill="% of pixels (5x5km) in a commune exceeding environmental threshold >=0.71") +
+commune_over71_map_fn <- function(x) {
+  
+  commune_mapping_filter <-
+    readRDS(here('data', 'output', 'commune_mapping_filter.Rds')) %>%
+    mutate(prev_mapping = 1)
+  
+  angola_commune_oncho_over71_map <-
+    x %>%
+    ggplot() +
+    geom_sf(aes(fill = propover71)) +
+    geom_sf(
+      fill = "transparent",
+      color = "black",
+      size = 1.5,
+      data = adm1_shp
+    ) +
+    labs(fill = "% of pixels (5x5km) in a commune exceeding environmental threshold >=0.71") +
     theme_minimal() +
-  theme(legend.position = "top") +
-    scale_fill_viridis_c(option = "magma", begin=0, end=1)
+    theme(legend.position = "top") +
+    scale_fill_viridis_c(option = "magma",
+                         begin = 0,
+                         end = 1)
+  
+  return(angola_commune_oncho_over71_map)
+}
 
-angola_commune_oncho_noloaloa_over71_map
+angola_commune_oncho_loaloa_over71_map <- commune_over71_map_fn(angola_commune_oncho_loaloa_over71)
+angola_commune_oncho_noloaloa_over71_map <- commune_over71_map_fn(angola_commune_oncho_noloaloa_over71)
 
 ```
 
 
 ```{r country-commune-noloaloa-map}
 #Calculate weighted mean
-angola_commune_oncho_noloaloa_collapse <- setDT(angola_commune_oncho)[
-  loaloa_status == "Non-endemic"] [
-  , keyby = .(adm1_en, adm2_en, adm3_en), 
-                          .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%  
-  merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en','adm3_en')) %>% 
-  st_as_sf() 
 
-# Map weighted mean by ADM3  
-(angola_commune_oncho_noloaloa_map <- angola_commune_oncho_noloaloa_collapse %>% 
-  ggplot() +
-  geom_sf(aes(fill = oncho_mean_aw)) +
-     geom_sf(fill = "transparent", color = "black", size = 1.5, 
-          data = adm1_shp) +
-     labs(fill="Environmental suitability (Mean)") +
-    theme_minimal() +
-  theme(legend.position = "top") +
-  commune_fill)
-
-commune_boxwhisker <- angola_commune_oncho %>% 
-  filter(loaloa_status == "Non-endemic") %>% 
-  mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
-  split(.$location_name) %>%
-  imap(~ ggplot(data=.x) +
-        geom_boxplot(aes(value, reorder(adm3_en,desc(adm3_en)))) + 
-        theme_bw() +
-        scale_x_continuous(limits=c(0,100),sec.axis = dup_axis()) +
-        labs(x='Environmental suitability', 
-             y='Commune') +
-          ggtitle(.y) 
-  )
-
-
-commune_map <-  angola_commune_oncho_noloaloa_collapse %>%
-  as.data.frame() %>% 
-  st_as_sf() %>% 
-  mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
-  split(.$location_name) %>%
-  imap(~ ggplot(data = .x) +
-      geom_sf(aes(fill = oncho_mean_aw)) +
-      geom_sf_label_repel(aes(label = adm3_en)) +
-        labs(fill="Environmental suitability (Mean)") +
-      theme(legend.position = 'top') +
-      labs(x = "", y = "", fill = "Environmental suitability") +
-      commune_fill +
-      ggtitle(.y)
-  )
-
-commune_col <- angola_commune_oncho_noloaloa_collapse %>% 
-  as_tibble() %>% 
-  mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
-  split(.$location_name) %>%
-  imap(~ ggplot(data=.x) +
-         geom_col(aes(x=adm3_en, y=total_pop)) +
-       theme_bw() +
-  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
-         labs(x='Commune', 
-              y='Popoulation') +
-         ggtitle(.y) +
-    coord_flip()
-  )
-
-
-all_plots <- c()
-for (i in 1:80) {
- x <-  (commune_map[[i]] + commune_col[[i]]) / commune_boxwhisker[[i]]
- all_plots[[length(all_plots) + 1]] <- x    # Append new list element
+weighted_mean_map_fn <- function(x) {
+  if (missing(x)) {
+    angola_commune_oncho_noloaloa_collapse <-
+      setDT(angola_commune_oncho) [, keyby = .(adm1_en, adm2_en, adm3_en),
+                                   .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%
+      merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en', 'adm3_en')) %>%
+      st_as_sf()
+  } else {
+    angola_commune_oncho_noloaloa_collapse <-
+      setDT(angola_commune_oncho)[loaloa_status == "Non-endemic"] [, keyby = .(adm1_en, adm2_en, adm3_en),
+                                                                   .(oncho_mean_aw = sum(value * coverage_fraction) / sum(coverage_fraction))] %>%
+      merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en', 'adm3_en')) %>%
+      st_as_sf()
+  }
 }
+
+all <- weighted_mean_map_fn()
+noloaloa <- weighted_mean_map_fn("Non-endemic")
+
+# # Map weighted mean by ADM3  
+# (angola_commune_oncho_noloaloa_map <- angola_commune_oncho_noloaloa_collapse %>% 
+#   ggplot() +
+#   geom_sf(aes(fill = oncho_mean_aw)) +
+#      geom_sf(fill = "transparent", color = "black", size = 1.5, 
+#           data = adm1_shp) +
+#      labs(fill="Environmental suitability (Mean)") +
+#     theme_minimal() +
+#   theme(legend.position = "top") +
+#   commune_fill)
+# 
+# commune_boxwhisker <- angola_commune_oncho %>% 
+#   filter(loaloa_status == "Non-endemic") %>% 
+#   mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
+#   split(.$location_name) %>%
+#   imap(~ ggplot(data=.x) +
+#         geom_boxplot(aes(value, reorder(adm3_en,desc(adm3_en)))) + 
+#         theme_bw() +
+#         scale_x_continuous(limits=c(0,100),sec.axis = dup_axis()) +
+#         labs(x='Environmental suitability', 
+#              y='Commune') +
+#           ggtitle(.y) 
+#   )
+# 
+# 
+# commune_map <-  angola_commune_oncho_noloaloa_collapse %>%
+#   as.data.frame() %>% 
+#   st_as_sf() %>% 
+#   mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
+#   split(.$location_name) %>%
+#   imap(~ ggplot(data = .x) +
+#       geom_sf(aes(fill = oncho_mean_aw)) +
+#       geom_sf_label_repel(aes(label = adm3_en)) +
+#         labs(fill="Environmental suitability (Mean)") +
+#       theme(legend.position = 'top') +
+#       labs(x = "", y = "", fill = "Environmental suitability") +
+#       commune_fill +
+#       ggtitle(.y)
+#   )
+# 
+# commune_col <- angola_commune_oncho_noloaloa_collapse %>% 
+#   as_tibble() %>% 
+#   mutate(location_name=paste(adm1_en,adm2_en, sep= "-")) %>% 
+#   split(.$location_name) %>%
+#   imap(~ ggplot(data=.x) +
+#          geom_col(aes(x=adm3_en, y=total_pop)) +
+#        theme_bw() +
+#   scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+#          labs(x='Commune', 
+#               y='Popoulation') +
+#          ggtitle(.y) +
+#     coord_flip()
+#   )
+# 
+# 
+# all_plots <- c()
+# for (i in 1:80) {
+#  x <-  (commune_map[[i]] + commune_col[[i]]) / commune_boxwhisker[[i]]
+#  all_plots[[length(all_plots) + 1]] <- x    # Append new list element
+# }
 
 ```
 
 
 ```{r longlist-generation}
-(list.files(here('data', 'input', 'oncho_incidence'), full.names=T, recursive=T) %>%
-    keep(~ str_detect(.x, '.xls')) %>%
-    map_dfr(~ readxl::read_xls(.x) %>% mutate(province = .x) %>% 
-              mutate(province= str_replace(
-                province, 
-                "/Users/DK_kirby/Library/CloudStorage/OneDrive-UNSW/analysis/angola_oem_iuselect/data/input/oncho_incidence/", 
-                "")) %>% 
-              clean_names)
-     ->
-    incidence_raw)
+incidence_wrangling_fn <- function(x) {
+incidence_raw <- 
+  list.files(
+    here('data', 'input', 'oncho_incidence'),
+    full.names = T,
+    recursive = T
+  ) %>%
+  keep( ~ str_detect(.x, '.xls')) %>%
+  map_dfr(
+    ~ readxl::read_xls(.x) %>%
+      mutate(
+        province = .x,
+        province = str_replace(province,
+                               "data/input/oncho_incidence/",
+                               "")
+      ) %>%
+      clean_names
+  )
 
-incidence_clean <- incidence_raw %>% 
-  mutate(new = coalesce(!!! select(., contains("provincia")))) %>% 
-  mutate(municipality=coalesce(organisationunitname, new)) %>% 
-  select(-c(organisationunitname, new, contains('provincia'))) %>% 
-  filter(!province=='ANUAL-2017.xls') %>% 
-  mutate(province= str_replace(
-    province, 
-    ".xls", 
-    "")) %>% 
-  clean_data() %>% 
-  select(province, municipality, everything()) %>% 
-  mutate(province = case_when ( province=="benguela222" ~ 'huila', 
-                                 TRUE ~ province)) %>% 
-  pivot_longer(
-    -c(province, municipality)) %>% 
+incidence_clean <- incidence_raw %>%
+  mutate(new = coalesce(!!!select(., contains("provincia"))),
+         municipality = coalesce(organisationunitname, new)) %>%
+  select(-c(organisationunitname, new, contains('provincia'))) %>%
+  filter(!province == 'ANUAL-2017.xls') %>%
+  mutate(province = str_replace(province,
+                                ".xls",
+                                "")) %>%
+  clean_data() %>%
+  select(province, municipality, everything()) %>%
+  mutate(province = case_when (province == "benguela222" ~ 'huila',
+                               TRUE ~ province)) %>%
+  pivot_longer(-c(province, municipality)) %>%
   mutate(
-    year = str_replace(name, 'ne_onconcercose_casos_filariosis_ocular_', '')) %>% 
-  mutate(
-    municipality = str_replace(municipality, 'municipio_de_', '')) %>%
-  mutate(province = case_when(province=='c_norte' ~ 'cuanza_norte', 
-                              province=='c_sul' ~ 'cuanza_sul', 
-                              province=='l_norte' ~ 'lunda_norte', 
-                              
-                              TRUE ~ province)) %>% 
+    year = str_replace(name, 'ne_onconcercose_casos_filariosis_ocular_', ''),
+    municipality = str_replace(municipality, 'municipio_de_', ''),
+    province = case_when(
+      province == 'c_norte' ~ 'cuanza_norte',
+      province == 'c_sul' ~ 'cuanza_sul',
+      province == 'l_norte' ~ 'lunda_norte',
+      TRUE ~ province
+    )
+  ) %>%
   select(-name) 
 
 
 # Municipality level populations
-
 
 #https://medium.com/@samukweku/reshaping-an-excel-table-in-r-71d7d9020124
 
@@ -598,17 +644,17 @@ municpality_population <- stage2  %>%
 
 
 incidence_pop_merge <- incidence_clean %>%   mutate(municipality=case_when(municipality=='ambaca_ex_camabatela' ~ 'ambaca', 
-                                                    municipality=='malange' ~ 'malanje', 
-                                                    municipality=='tchicala_tcholohanga' ~ 'tchikala_tcholohanga', 
-                                                    municipality=='quibala' ~ 'kibala', 
-                                                    municipality=='sumbe' ~ 'sumbe_sede', 
-                                                    municipality=='belas' ~ 'futungo_de_belas', 
-                                                    municipality=='kilamba_kiaxi' ~ 'kilamba', 
-                                                    municipality=='kiwaba_nzogi' ~ 'kiwaba_n_zogi',
-                                                    municipality=='quirima' ~ 'kirima',
-                                                    municipality=='cela' ~ 'cela_ex_waku_kungo',
-                                                    municipality=='lumeje_cameia' ~ 'cameia',
-                                                    TRUE ~ municipality)) %>% 
+                                                                           municipality=='malange' ~ 'malanje', 
+                                                                           municipality=='tchicala_tcholohanga' ~ 'tchikala_tcholohanga', 
+                                                                           municipality=='quibala' ~ 'kibala', 
+                                                                           municipality=='sumbe' ~ 'sumbe_sede', 
+                                                                           municipality=='belas' ~ 'futungo_de_belas', 
+                                                                           municipality=='kilamba_kiaxi' ~ 'kilamba', 
+                                                                           municipality=='kiwaba_nzogi' ~ 'kiwaba_n_zogi',
+                                                                           municipality=='quirima' ~ 'kirima',
+                                                                           municipality=='cela' ~ 'cela_ex_waku_kungo',
+                                                                           municipality=='lumeje_cameia' ~ 'cameia',
+                                                                           TRUE ~ municipality)) %>% 
   left_join(municpality_population, by=c('province', 'municipality')) %>% 
   filter(!value>1000) %>% 
   mutate(incidence_per100k=(value/population)*100000) %>% 
@@ -622,7 +668,7 @@ incidence_pop_merge <- incidence_clean %>%   mutate(municipality=case_when(munic
 province_incidence <- incidence_pop_merge %>% 
   group_by(year, province) %>% 
   summarise(province_incidence=sum(value, na.rm=TRUE),
-      province_population=sum(population,na.rm=TRUE)) %>% 
+            province_population=sum(population,na.rm=TRUE)) %>% 
   mutate(province_incidence_per100k=(province_incidence/province_population)*100000)
 
 municipality_incidence <- incidence_pop_merge %>% 
@@ -637,71 +683,115 @@ case_reported <- municipality_incidence %>%
   distinct(province, municipality) %>% 
   mutate(case_reported='YES')
 
-longlist <- angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% pull(adm3_pcode)
+return(case_reported)
+}
 
-final_table <- angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% 
+case_reported <- incidence_wrangling_fn()
+
+longlist <-
+  angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% pull(adm3_pcode)
+longlist_loaloa <-
+  angola_commune_oncho_loaloa_over71 %>% as_tibble() %>% pull(adm3_pcode)
+
+longlist_adm2_df <-
+  angola_commune_oncho_loaloa_over71 %>% as_tibble() %>% count(iu_id) %>%
+  pull(iu_id)
+
+saveRDS(longlist_adm2_df, here('maps', 'r_objects', 'longlist_adm2_df.Rds'))
+
+final_table <- angola_commune_oncho_noloaloa_over71 %>% 
+  as_tibble() %>% 
   select(province=adm1_en, municipality=adm2_en, commune=adm3_en, population, Endemicity )
 
-province_final_table <- final_table %>% tabyl(province) %>% 
+province_final_table <- final_table %>% 
+  tabyl(province) %>% 
   adorn_pct_formatting(rounding = "half up", digits = 0) %>% 
   adorn_totals("row")
 
 saveRDS(province_final_table, here('tables','province_final_table.Rds'))
 
-
-df1 <- angola_commune_oncho_collapse %>% as_tibble() %>% 
+commune_oncho_mean_aw <- angola_commune_oncho_collapse %>% 
+  as_tibble() %>% 
   select( "adm1_pcode","adm2_pcode","adm3_pcode","oncho_mean_aw" )
 
-df2 <- angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% 
-  select("adm1_pcode","adm2_pcode","adm3_pcode","adm1_en","adm2_en","adm3_en",propover71,total_pop, Endemicity )
-
-df3 <- neighbour_endemic_area %>% as_tibble() %>% select(adm1_en, adm2_en, adm3_en) %>% mutate(neighbours_endemic_iu='Yes')
-
-commune_survey_data <- readRDS(here('data','output','commune_survey_data.Rds')) %>% 
-  group_by(adm1_en, adm2_en, adm3_en) %>% 
-  filter(SurveyYear==max(SurveyYear))
-        
-df2_merge_df3 <- df2 %>% left_join(df3, by=c("adm1_en","adm2_en","adm3_en")) %>% 
-  left_join(commune_survey_data, by=c("adm1_en","adm2_en","adm3_en"))
-
-df_merge <- df2_merge_df3 %>% left_join(df1, by=c("adm1_pcode","adm2_pcode","adm3_pcode")) %>% 
-  mutate(lf_treatment=case_when(grepl('lf', Endemicity, ignore.case=T) ~ 'Yes')) %>% 
-  left_join(case_reported, by=c('adm1_en'='province', 'adm2_en'='municipality')) %>% 
-  arrange(adm1_en, adm2_en) %>% 
-  mutate(propover71=propover71/100,
-         oncho_mean_aw=oncho_mean_aw/100,
-         total_pop=total_pop/1000
-         )
-
-env_rank_df <- df_merge %>% 
-  mutate(env_rank=dense_rank(desc(oncho_mean_aw))) %>% 
-  filter(env_rank<=50)
+short_long_list_fn <- function(x) {
+  commune_over71 <-  angola_commune_oncho_loaloa_over71 %>%
+    as_tibble() %>% 
+    select(
+      "adm1_pcode",
+      "adm2_pcode",
+      "adm3_pcode",
+      "adm1_en",
+      "adm2_en",
+      "adm3_en",
+      "iu_id",
+      propover71,
+      total_pop,
+      Endemicity, 
+      loaloa_status
+    )
   
-prop_rank_df <- df_merge %>% 
-  mutate(prop_rank=dense_rank(desc(propover71))) %>% 
-  filter(prop_rank<=50)
+  commune_neighbour_endemic <- neighbour_endemic_area %>%
+    as_tibble() %>%
+    select(adm1_en, adm2_en, adm3_en) %>%
+    mutate(neighbours_endemic_iu = 'Yes')
+  
+  commune_survey_data <-
+    readRDS(here('data', 'output', 'commune_survey_data.Rds')) %>%
+    group_by(adm1_en, adm2_en, adm3_en) %>%
+    filter(SurveyYear == max(SurveyYear))
+  
+  commune_over71_merge_commune_neighbour_endemic <-
+    commune_over71 %>%
+    left_join(commune_neighbour_endemic,
+              by = c("adm1_en", "adm2_en", "adm3_en")) %>%
+    left_join(commune_survey_data, by = c("adm1_en", "adm2_en", "adm3_en"))
+  
+  df_merge <- commune_over71_merge_commune_neighbour_endemic %>%
+    left_join(commune_oncho_mean_aw,
+              by = c("adm1_pcode", "adm2_pcode", "adm3_pcode")) %>%
+    mutate(lf_treatment = case_when(grepl('lf', Endemicity, ignore.case =
+                                            T) ~ 'Yes')) %>%
+    left_join(case_reported,
+              by = c('adm1_en' = 'province', 'adm2_en' = 'municipality')) %>%
+    arrange(adm1_en, adm2_en) %>%
+    mutate(
+      propover71 = propover71 / 100,
+      oncho_mean_aw = oncho_mean_aw / 100,
+      total_pop = total_pop / 1000
+    )
+  
+  
+  shortlist_df <- df_merge %>%
+    #filter(loaloa_status=='Non-endemic') %>% 
+    mutate(env_rank = dense_rank(desc(oncho_mean_aw))) %>% 
+    mutate(prop_rank = dense_rank(desc(propover71))) %>% 
+    mutate(prev_rank = dense_rank(desc(Prevalence))) %>% 
+    #  
+    # # bind_rows(prop_rank_df, prev_rank_df) %>%
+    #  left_join(prop_rank_df, by=c('adm1_en', 'adm2_en', 'adm3_en', 'adm3_pcode')) %>% 
+    #  left_join(prev_rank_df, by=c('adm1_en', 'adm2_en', 'adm3_en', 'adm3_pcode')) %>% 
+    rowwise() %>%
+    mutate(sum = sum(c_across(env_rank:prev_rank), na.rm = TRUE)) %>% 
+    ungroup() %>% 
+    mutate(overall_rank = dense_rank((sum))) 
+  
+  return(shortlist_df)
+}
 
-prev_rank_df <- df_merge %>% 
-  filter(Prevalence>0) %>% 
-  mutate(prev_rank=dense_rank(desc(Prevalence))) %>% 
-  filter(prev_rank<=50)
-
-
-shortlist <- env_rank_df %>% bind_rows(prop_rank_df,prev_rank_df) %>% 
-  count(adm1_en, adm2_en,adm3_en,adm3_pcode) %>% 
-  #count(adm1_pcode, adm2_pcode, adm3_pcode) %>% 
-  filter(n==3) %>% 
+shortlist <- short_long_list_fn() %>% 
+  filter(sum <=100) %>%
   pull(adm3_pcode)
 
-shortlist_df <- env_rank_df %>% bind_rows(prop_rank_df,prev_rank_df) %>% 
-  count(adm1_en, adm2_en) %>% 
-  filter(n==3) 
-  
-saveRDS(shortlist_df, here('maps', 'r_objects', 'shortlist_df.Rds'))
+shortlist_adm2_df <- short_long_list_fn() %>% 
+  filter(sum <=100)
+  distinct(iu_id) %>% 
+  pull(iu_id)
 
+saveRDS(shortlist_adm2_df, here('maps', 'r_objects', 'shortlist_adm2_df.Rds'))
 
 high_ranking_map <- commune_shp %>% 
-  mutate(list_cat=case_when((adm3_pcode %in% longlist & !adm3_pcode %in% shortlist)~ "Longlist",
+  mutate(list_cat=case_when((adm3_pcode %in% longlist_loaloa & !adm3_pcode %in% shortlist)~ "Longlist",
                             adm3_pcode %in% shortlist ~ 'Shortlist')) %>% 
   filter(!is.na(list_cat)) %>% 
   ggplot(data=.) +
@@ -713,8 +803,8 @@ high_ranking_map <- commune_shp %>%
   labs(fill='', 
        #title='Identifying priority areas for onchocercisis elimination mapping #in Angola',
        subtitle='Borders: Thick black line = Province, Thin grey line = Municipality, Dashed line = Commune ') +
-  theme_minimal() +
-  theme(legend.position='top')
+    theme_minimal() + 
+  theme(legend.position = "none", panel.grid = element_blank())
 
 saveRDS(high_ranking_map, here('maps', 'r_objects', 'high_ranking_map.Rds'))
 high_ranking_map
