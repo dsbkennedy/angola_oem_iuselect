@@ -133,8 +133,8 @@ saveRDS(iu_lf_endemicity_tbl, here('tables', 'iu_lf_endemicity_tbl.Rds'))
 
 
 unknown_commune_shp <- commune_shp_linked %>% 
-    left_join(oncho_loa_loa_lf_data, by=c('iu_id' = 'IU_ID')) %>% 
-  filter(grepl('Unknown', Endemicity)) 
+    left_join(oncho_loa_loa_lf_data, by=c('iu_id' = 'IU_ID')) 
+  #filter(grepl('Unknown', Endemicity)) 
 
 commune_oncho_endemicity_tbl <- commune_shp_linked %>% as_tibble() %>% 
   left_join(oncho_loa_loa_lf_data, by=c('iu_id' = 'IU_ID')) %>% 
@@ -413,7 +413,7 @@ angola_commune_oncho_loaloa_over71 <-
   count(adm1_en, adm2_en, adm3_en, over71) %>%
   group_by(adm1_en, adm2_en, adm3_en) %>%
   mutate(propover71 = 100 * (n / sum(n))) %>%
-  filter(over71 == 1) %>%
+  #filter(over71 == 1) %>%
   merge(unknown_commune_shp, by = c('adm1_en', 'adm2_en', 'adm3_en')) %>%
   st_as_sf()
 
@@ -456,10 +456,10 @@ commune_over71_map_fn <- function(data, title) {
   return(angola_commune_oncho_over71_map)
 }
 
-angola_commune_oncho_loaloa_over71_map <- commune_over71_map_fn(angola_commune_oncho_loaloa_over71,'Loa loa endemic communes included')
-angola_commune_oncho_noloaloa_over71_map <- commune_over71_map_fn(angola_commune_oncho_noloaloa_over71, 'Loa loa endemic communes excluded')
+angola_commune_oncho_over71_map <- commune_over71_map_fn(angola_commune_oncho_loaloa_over71,'All endemicity categories')
+angola_commune_oncho_unknown_over71_map <- commune_over71_map_fn(angola_commune_oncho_loaloa_over71 %>% filter(grepl('Unknown', Endemicity)), 'Unkown endemicity only')
 
-angola_commune_oncho_noloaloa_over71_map + angola_commune_oncho_loaloa_over71_map +  plot_layout(guides = "collect") & theme(legend.position = 'bottom')
+angola_commune_oncho_over71_map + angola_commune_oncho_unknown_over71_map +  plot_layout(guides = "collect") & theme(legend.position = 'bottom')
 
 angola_commune_oncho_loaloa_over71_map
 
@@ -633,7 +633,7 @@ return(case_reported)
 
 case_reported <- incidence_wrangling_fn()
 
-longlist <-
+vlonglist <-
   angola_commune_oncho_noloaloa_over71 %>% as_tibble() %>% pull(adm3_pcode)
 longlist_loaloa <-
   angola_commune_oncho_loaloa_over71 %>% as_tibble() %>% pull(adm3_pcode)
