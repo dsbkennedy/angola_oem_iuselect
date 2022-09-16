@@ -707,7 +707,7 @@ cachiungo_oncho_map <- oncho_angola %>%
   #filter(ADMIN1=='Huambo') %>% 
   ggplot() +
   geom_sf(aes(fill=oncho_mean_aw), lwd=1) +
-  gghighlight(IUs_NAME=='Cachiungo') +
+  gghighlight(IUs_NAME=='Bailundo') +
   geom_sf_label_repel(aes(label = IUs_NAME),
                       force = 100, nudge_x = -2, seed = 10) +
   labs(fill='Environmental suitability') +
@@ -725,9 +725,10 @@ By focusing on this IU, we can show the borders associated with the lower level 
 ```{r cachiungo-adm3-suitability}
 
 cachiungo_adm3_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
-  filter(ADM2_EN=='Catchiungo')
+  filter(ADM2_EN=='Bailundo')
 
-cachiungo_adm3_oncho_crop <- raster::crop(africa_oncho_raster, cachiungo_adm3_shp)
+cachiungo_adm3_oncho_crop <- mask(africa_oncho_raster, cachiungo_adm3_shp)
+cachiungo_adm3_oncho_crop <- raster::crop(cachiungo_adm3_oncho_crop, cachiungo_adm3_shp)
 
 cachiungo_oncho_point  <-  rasterToPoints(cachiungo_adm3_oncho_crop)
 cachiungo_oncho_point_df <-  data.frame(cachiungo_oncho_point)

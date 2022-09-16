@@ -34,15 +34,6 @@ import_iu_shapefile <- function(iu_shp) {
 iu_shp <- import_iu_shapefile()
 crs_shp <- st_crs(iu_shp)
 
-# collapse_country_shapefile <- function(ang_shp) {
-#   ang_shp <- iu_shp %>%
-#     group_by(ADMIN0) %>%
-#     summarise()
-#   
-#   return(ang_shp)
-# }
-#   
-# ang_shp <- collapse_country_shapefile()
 
 import_river_shapefile <- function(river_shp, angola_river) {
 
@@ -146,11 +137,10 @@ library(furrr)
 library(glue)
 plan(multisession)
 x <- iu_shp %>% 
-  filter(ADMIN1 %in% c( "Huambo")) %>% 
+  filter(admin1 %in% c( "Huambo")) %>% 
   group_nest(ADMIN2) %>% 
   mutate(river_map=future_map(data, river_processing))
 
-huambo_shp <- iu_shp %>% filter(ADMIN2 == 'Huambo')
 osm_rivers_shp <- st_read(here('data', 'input', 'osm_rivers.shp'))
 
 huambo_river <- sf::st_crop(osm_rivers_shp, huambo_shp)
@@ -205,6 +195,15 @@ all_rivers <- osm_rivers_shp %>%
   mutate(river_name=case_when(river_name=='Kwanza' ~ 'Cuanza', 
                               TRUE ~ river_name)) 
 
+all_river_crop <- sf::st_crop(all_rivers, commune_shp %>% filter(adm3_pcode %in% shortlist))
+
+ggplot() +
+  geom_sf(data=commune_shp %>% filter(adm3_pcode %in% shortlist)) +
+  geom_sf(data=river_iu_intersect)
+
+river_iu_intersect <- st_intersection(all_rivers,commune_shp %>% filter(adm3_pcode %in% shortlist))
+
+
 river_iu_intersect <- st_intersection(all_rivers,iu_shp %>% filter(shortlist==1))
 
 
@@ -223,44 +222,34 @@ shortlist_rivers <- full_river_name %>% append(alt_river_name)
 
 filter_river <- all_rivers %>% filter(river_name %in% shortlist_rivers)
 
-# saveRDS(river_iu_intersect, here('data', 'input', 'river_iu.Rds'))
-# river_iu_intersect <- readRDS(here('data', 'input', 'river_iu.Rds'))
-
-# shortlist_rivers <- river_iu_intersect %>% 
-#   as_tibble() %>% 
-#   select(-geometry) %>% 
-#   filter(shortlist==1) %>% 
-#   distinct(river_name) %>% 
-#   pull(river_name)
-# 
-# longlist_rivers <- river_iu_intersect %>% 
-#   filter(iu_id %in% longlist_adm2) %>% 
-#   distinct(river_name) %>% 
-#   pull(river_name)
 
 adm1_shp <- iu_shp %>%
   group_by(admin1) %>%
   summarise()
 
-# luanda_shp <- iu_shp %>% filter(admin1=='moxico')
-# luanda_intersect <- st_intersection(all_rivers,luanda_shp)
+commune_shp <- read_sf(here('data', 'input', 'shp', 'ago_admbnda_adm3_gadm_ine_ocha_20180904.shp')) %>% 
+  select(ADM1_EN, ADM1_PCODE, ADM2_EN,ADM2_PCODE, ADM3_EN,ADM3_PCODE, geometry) %>% 
+  clean_data()
 
-all_river_crop <- sf::st_crop(all_rivers, adm1_shp)
+
+
+
 
 ggplot() +
   geom_sf(data = iu_shp
           ,aes(fill = endemicity_recat), color = "#AAAAAA") +
   scale_fill_viridis_d( alpha = .4) +
   #geom_sf(data=all_rivers %>% filter(river_name %in% longlist_rivers), col='light green') +
-  # geom_sf(data=all_river_crop %>% 
-  #           filter(river_name %in% shortlist_river), col='dark green') +
+  geom_sf(data=all_river_crop %>%
+            filter(river_name %in% shortlist_river), col='dark green') +
   geom_sf(fill = "transparent", color = "black", size = 0.2,
           data=adm1_shp) +
   geom_sf(data=filter_river %>% filter(!river_name %in% c('Cuito', 'Kwilu')), col='dark blue', size=1) +
   labs(fill='Endemicity status', 
        title='Onchocerciasis endemicity and rivers in Angola',
        subtitle = 'Rivers (blue) are included if they are\nassociated with an implementation unit from the shortlist ') +
-  theme(legend.position = "right", panel.grid = element_blank())
+  theme(legend.position = "right", panel.grid = element_blank()) +
+  theme_void()
 
 
 all_rivers %>% filter(river_name == 'Chicapa')
