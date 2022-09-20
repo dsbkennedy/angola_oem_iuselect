@@ -1,2 +1,3 @@
-# angola_oem_iuselect
-Selecting IUs for OEM in Angola
+# Angola site selection
+
+Selecting IUs for onchocerciasis elimination mapping(OEM) in Angola
